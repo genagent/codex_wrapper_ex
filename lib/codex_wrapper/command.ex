@@ -3,8 +3,8 @@ defmodule CodexWrapper.Command do
   Behaviour for CLI commands.
 
   Every command knows how to build its argument list and how to
-  parse its output. This is the Elixir equivalent of the Rust
-  `CodexCommand` trait.
+  parse its output. Uses Port instead of System.cmd to close stdin
+  (Codex CLI hangs if stdin is inherited from parent).
   """
 
   @type args :: [String.t()]
@@ -14,7 +14,7 @@ defmodule CodexWrapper.Command do
               {:ok, term()} | {:error, term()}
 
   @doc """
-  Run a command synchronously via `System.cmd`.
+  Run a command with stdin closed.
 
   Returns the parsed output on success.
   """
@@ -26,21 +26,58 @@ defmodule CodexWrapper.Command do
     execute_cmd(mod, config.binary, all_args, opts, config.timeout)
   end
 
-  defp execute_cmd(mod, binary, args, opts, nil) do
-    case System.cmd(binary, args, opts) do
-      {stdout, 0} -> mod.parse_output(stdout, 0)
-      {stdout, code} -> mod.parse_output(stdout, code)
-    end
-  rescue
-    e in ErlangError -> {:error, {:system_cmd, e}}
-  end
-
   defp execute_cmd(mod, binary, args, opts, timeout) do
-    task = Task.async(fn -> System.cmd(binary, args, opts) end)
+    task =
+      Task.async(fn ->
+        run_with_closed_stdin(binary, args, opts)
+      end)
 
-    case Task.yield(task, timeout) || Task.shutdown(task) do
+    effective_timeout = timeout || :infinity
+
+    case Task.yield(task, effective_timeout) || Task.shutdown(task, :brutal_kill) do
       {:ok, {stdout, code}} -> mod.parse_output(stdout, code)
       nil -> {:error, {:timeout, timeout}}
     end
   end
+
+  defp run_with_closed_stdin(binary, args, opts) do
+    cd = Keyword.get(opts, :cd)
+    env = Keyword.get(opts, :env, [])
+
+    # Build the command string with stdin redirected from /dev/null
+    escaped_args = Enum.map_join(args, " ", &shell_escape/1)
+    shell_cmd = "#{binary} #{escaped_args} < /dev/null 2>&1"
+
+    port_opts =
+      [:binary, :exit_status, :stderr_to_stdout, args: ["-c", shell_cmd]]
+      |> maybe_add(:cd, cd)
+      |> maybe_add_env(env)
+
+    port = Port.open({:spawn_executable, "/bin/sh"}, port_opts)
+    collect_port_output(port, "")
+  end
+
+  defp collect_port_output(port, acc) do
+    receive do
+      {^port, {:data, data}} ->
+        collect_port_output(port, acc <> data)
+
+      {^port, {:exit_status, code}} ->
+        {acc, code}
+    end
+  end
+
+  defp shell_escape(arg) do
+    if String.contains?(arg, ["'", " ", "\"", "\\", "(", ")", "$", "`", "!", "&", "|", ";", "\n"]) do
+      "'" <> String.replace(arg, "'", "'\\''") <> "'"
+    else
+      arg
+    end
+  end
+
+  defp maybe_add(opts, _key, nil), do: opts
+  defp maybe_add(opts, key, value), do: [{key, value} | opts]
+
+  defp maybe_add_env(opts, []), do: opts
+  defp maybe_add_env(opts, env), do: [{:env, env} | opts]
 end
