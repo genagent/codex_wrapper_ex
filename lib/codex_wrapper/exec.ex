@@ -20,7 +20,7 @@ defmodule CodexWrapper.Exec do
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, Result}
+  alias CodexWrapper.{Command, Config, JsonLineEvent, Result}
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
   @type approval_policy :: :untrusted | :on_failure | :on_request | :never
@@ -160,6 +160,88 @@ defmodule CodexWrapper.Exec do
     Command.run(__MODULE__, exec, config)
   end
 
+  @doc """
+  Execute the command with `--json` and return a list of parsed `%JsonLineEvent{}`.
+
+  Forces `--json` on the exec command, runs synchronously, then parses
+  each NDJSON line from stdout.
+  """
+  @spec execute_json(t(), Config.t()) :: {:ok, [JsonLineEvent.t()]} | {:error, term()}
+  def execute_json(%__MODULE__{} = exec, %Config{} = config) do
+    exec = %{exec | json: true}
+
+    case execute(exec, config) do
+      {:ok, result} ->
+        events =
+          result.stdout
+          |> String.split("\n", trim: true)
+          |> Enum.filter(&String.starts_with?(String.trim_leading(&1), "{"))
+          |> Enum.flat_map(fn line ->
+            case JsonLineEvent.parse(line) do
+              {:ok, event} -> [event]
+              {:error, _} -> []
+            end
+          end)
+
+        {:ok, events}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc """
+  Execute the command and return a lazy `Stream` of `%JsonLineEvent{}`.
+
+  Uses a Port with `:line` mode to read NDJSON output line-by-line.
+  The port is opened when the stream is consumed and closed when
+  the stream terminates.
+
+  Forces `--json` on the exec command.
+  """
+  @spec stream(t(), Config.t()) :: Enumerable.t()
+  def stream(%__MODULE__{} = exec, %Config{} = config) do
+    exec = %{exec | json: true}
+    args = Config.base_args(config) ++ args(exec)
+
+    port_opts =
+      [:binary, :exit_status, {:line, 1_048_576}, {:args, args}] ++
+        port_env_opts(config) ++
+        port_cd_opts(config)
+
+    Stream.resource(
+      fn ->
+        Port.open({:spawn_executable, config.binary}, port_opts)
+      end,
+      fn port ->
+        receive do
+          {^port, {:data, {:eol, line}}} ->
+            case JsonLineEvent.parse(line) do
+              {:ok, event} -> {[event], port}
+              {:error, _} -> {[], port}
+            end
+
+          {^port, {:data, {:noeol, _partial}}} ->
+            {[], port}
+
+          {^port, {:exit_status, _code}} ->
+            {:halt, port}
+        after
+          300_000 -> {:halt, port}
+        end
+      end,
+      fn port ->
+        send(port, {self(), :close})
+
+        receive do
+          {^port, :closed} -> :ok
+        after
+          5_000 -> :ok
+        end
+      end
+    )
+  end
+
   # --- Command behaviour ---
 
   @impl Command
@@ -219,4 +301,12 @@ defmodule CodexWrapper.Exec do
   defp format_approval_policy(:on_failure), do: "on-failure"
   defp format_approval_policy(:on_request), do: "on-request"
   defp format_approval_policy(:never), do: "never"
+
+  # --- Port helpers ---
+
+  defp port_env_opts(%Config{env: []}), do: []
+  defp port_env_opts(%Config{env: env}), do: [{:env, env}]
+
+  defp port_cd_opts(%Config{working_dir: nil}), do: []
+  defp port_cd_opts(%Config{working_dir: dir}), do: [{:cd, String.to_charlist(dir)}]
 end
