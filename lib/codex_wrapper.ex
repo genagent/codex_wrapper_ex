@@ -25,7 +25,7 @@ defmodule CodexWrapper do
   3. System PATH lookup
   """
 
-  alias CodexWrapper.Commands.Version
+  alias CodexWrapper.Commands.{Completion, Version}
   alias CodexWrapper.{Config, Exec, JsonLineEvent, Result, Review}
 
   @doc """
@@ -39,6 +39,19 @@ defmodule CodexWrapper do
   def version(opts \\ []) do
     config = Config.new(opts)
     Version.execute(config)
+  end
+
+  @doc """
+  Generate a shell completion script.
+
+  ## Examples
+
+      {:ok, script} = CodexWrapper.completion(:zsh)
+  """
+  @spec completion(Completion.shell(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def completion(shell \\ :bash, opts \\ []) do
+    config = Config.new(opts)
+    Completion.generate(config, shell)
   end
 
   @doc """
