@@ -25,7 +25,7 @@ defmodule CodexWrapper do
   3. System PATH lookup
   """
 
-  alias CodexWrapper.{Config, Exec, Result}
+  alias CodexWrapper.{Config, Exec, JsonLineEvent, Result}
 
   @doc """
   Run an arbitrary CLI command that isn't wrapped by a dedicated module.
@@ -91,6 +91,41 @@ defmodule CodexWrapper do
     config = Config.new(config_opts)
     exec = build_exec(prompt, exec_opts)
     Exec.execute(exec, config)
+  end
+
+  @doc """
+  Execute a prompt with `--json` and return parsed NDJSON events.
+
+  See `exec/2` for available options.
+
+  ## Examples
+
+      {:ok, events} = CodexWrapper.exec_json("fix the tests")
+  """
+  @spec exec_json(String.t(), keyword()) :: {:ok, [JsonLineEvent.t()]} | {:error, term()}
+  def exec_json(prompt, opts \\ []) do
+    {config_opts, exec_opts} = split_opts(opts)
+    config = Config.new(config_opts)
+    exec = build_exec(prompt, exec_opts)
+    Exec.execute_json(exec, config)
+  end
+
+  @doc """
+  Execute a prompt and return a lazy stream of `%JsonLineEvent{}`.
+
+  See `exec/2` for available options.
+
+  ## Examples
+
+      CodexWrapper.stream("fix the tests")
+      |> Enum.each(fn event -> IO.inspect(event.event_type) end)
+  """
+  @spec stream(String.t(), keyword()) :: Enumerable.t()
+  def stream(prompt, opts \\ []) do
+    {config_opts, exec_opts} = split_opts(opts)
+    config = Config.new(config_opts)
+    exec = build_exec(prompt, exec_opts)
+    Exec.stream(exec, config)
   end
 
   # --- Private ---
