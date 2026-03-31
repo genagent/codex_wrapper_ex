@@ -86,7 +86,7 @@ defmodule CodexWrapper do
 
   ## Options
 
-  Config options (passed to `Config.new/1`):
+  Config options (passed to `CodexWrapper.Config.new/1`):
     * `:binary` - Path to codex binary
     * `:working_dir` - Working directory
     * `:env` - Environment variables
@@ -163,7 +163,7 @@ defmodule CodexWrapper do
 
   ## Options
 
-  Config options (passed to `Config.new/1`):
+  Config options (passed to `CodexWrapper.Config.new/1`):
     * `:binary` - Path to codex binary
     * `:working_dir` - Working directory
     * `:env` - Environment variables
