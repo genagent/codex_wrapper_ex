@@ -25,7 +25,7 @@ defmodule CodexWrapper do
   3. System PATH lookup
   """
 
-  alias CodexWrapper.{Config, Exec, JsonLineEvent, Result}
+  alias CodexWrapper.{Config, Exec, JsonLineEvent, Result, Review}
 
   @doc """
   Run an arbitrary CLI command that isn't wrapped by a dedicated module.
@@ -128,12 +128,81 @@ defmodule CodexWrapper do
     Exec.stream(exec, config)
   end
 
+  @doc """
+  Run a code review via `codex exec review`.
+
+  Convenience wrapper that builds a `Config` and `Review` from keyword options.
+  Returns `{:ok, %Result{}}` on success or `{:error, reason}` on failure.
+
+  ## Options
+
+  Config options (passed to `Config.new/1`):
+    * `:binary` - Path to codex binary
+    * `:working_dir` - Working directory
+    * `:env` - Environment variables
+    * `:timeout` - Timeout in ms
+    * `:verbose` - Enable verbose output
+
+  Review options (passed to `Review` builder):
+    * `:prompt` - Additional review context
+    * `:uncommitted` - Review uncommitted changes (boolean)
+    * `:base` - Compare against base branch
+    * `:commit` - Review a specific commit
+    * `:title` - PR/review title
+    * `:model` - Model name
+    * `:full_auto` - Enable full-auto (boolean)
+    * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
+    * `:skip_git_repo_check` - Skip git check (boolean)
+    * `:ephemeral` - Ephemeral mode (boolean)
+    * `:json` - JSON output (boolean)
+    * `:output_last_message` - Output last message path
+
+  ## Examples
+
+      CodexWrapper.review(uncommitted: true, working_dir: "/path/to/repo")
+      CodexWrapper.review(base: "main", model: "o3")
+  """
+  @spec review(keyword()) :: {:ok, Result.t()} | {:error, term()}
+  def review(opts \\ []) do
+    {config_opts, review_opts} = split_opts(opts)
+    config = Config.new(config_opts)
+    review = build_review(review_opts)
+    Review.execute(review, config)
+  end
+
   # --- Private ---
 
   @config_keys [:binary, :working_dir, :env, :timeout, :verbose]
 
   defp split_opts(opts) do
     Enum.split_with(opts, fn {k, _v} -> k in @config_keys end)
+  end
+
+  defp build_review(opts) do
+    review = Review.new()
+
+    Enum.reduce(opts, review, fn
+      {:prompt, v}, r -> Review.prompt(r, v)
+      {:uncommitted, true}, r -> Review.uncommitted(r)
+      {:uncommitted, false}, r -> r
+      {:base, v}, r -> Review.base(r, v)
+      {:commit, v}, r -> Review.commit(r, v)
+      {:title, v}, r -> Review.title(r, v)
+      {:model, v}, r -> Review.model(r, v)
+      {:full_auto, true}, r -> Review.full_auto(r)
+      {:full_auto, false}, r -> r
+      {:dangerously_bypass_approvals_and_sandbox, true}, r ->
+        Review.dangerously_bypass_approvals_and_sandbox(r)
+      {:dangerously_bypass_approvals_and_sandbox, false}, r -> r
+      {:skip_git_repo_check, true}, r -> Review.skip_git_repo_check(r)
+      {:skip_git_repo_check, false}, r -> r
+      {:ephemeral, true}, r -> Review.ephemeral(r)
+      {:ephemeral, false}, r -> r
+      {:json, true}, r -> Review.json(r)
+      {:json, false}, r -> r
+      {:output_last_message, v}, r -> Review.output_last_message(r, v)
+      _other, r -> r
+    end)
   end
 
   defp build_exec(prompt, opts) do
