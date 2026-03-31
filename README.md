@@ -13,7 +13,7 @@ servers -- all from Elixir.
 ```elixir
 def deps do
   [
-    {:codex_wrapper_ex, "~> 0.1.0"}
+    {:codex_wrapper, "~> 0.1.0"}
   ]
 end
 ```

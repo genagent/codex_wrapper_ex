@@ -6,13 +6,14 @@ defmodule CodexWrapperEx.MixProject do
 
   def project do
     [
-      app: :codex_wrapper_ex,
+      app: :codex_wrapper,
       version: @version,
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       docs: docs(),
-      name: "CodexWrapperEx",
+      package: package(),
+      name: "CodexWrapper",
       description: "Elixir wrapper for the Codex CLI"
     ]
   end
@@ -35,6 +36,15 @@ defmodule CodexWrapperEx.MixProject do
     [
       main: "CodexWrapper",
       source_url: @source_url
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib mix.exs README.md LICENSE .formatter.exs),
+      maintainers: ["Josh Rotenberg"]
     ]
   end
 end
