@@ -45,6 +45,25 @@ defmodule CodexWrapper.JsonLineEvent do
   end
 
   @doc """
+  Parse multiple NDJSON lines from stdout into a list of events.
+
+  Filters for lines that look like JSON objects and silently drops
+  lines that fail to parse.
+  """
+  @spec parse_lines(String.t()) :: [t()]
+  def parse_lines(stdout) when is_binary(stdout) do
+    stdout
+    |> String.split("\n", trim: true)
+    |> Enum.filter(&String.starts_with?(String.trim_leading(&1), "{"))
+    |> Enum.flat_map(fn line ->
+      case parse(line) do
+        {:ok, event} -> [event]
+        {:error, _} -> []
+      end
+    end)
+  end
+
+  @doc """
   Return the event type string.
   """
   @spec event_type(t()) :: String.t() | nil

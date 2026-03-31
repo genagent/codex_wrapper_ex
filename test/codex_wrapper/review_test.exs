@@ -120,7 +120,8 @@ defmodule CodexWrapper.ReviewTest do
                "exec",
                "review",
                "--uncommitted",
-               "--model", "gpt-5",
+               "--model",
+               "gpt-5",
                "--json",
                "focus on correctness"
              ]

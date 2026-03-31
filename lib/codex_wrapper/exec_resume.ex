@@ -157,22 +157,8 @@ defmodule CodexWrapper.ExecResume do
     exec = %{exec | json: true}
 
     case execute(exec, config) do
-      {:ok, result} ->
-        events =
-          result.stdout
-          |> String.split("\n", trim: true)
-          |> Enum.filter(&String.starts_with?(String.trim_leading(&1), "{"))
-          |> Enum.flat_map(fn line ->
-            case JsonLineEvent.parse(line) do
-              {:ok, event} -> [event]
-              {:error, _} -> []
-            end
-          end)
-
-        {:ok, events}
-
-      {:error, _} = err ->
-        err
+      {:ok, result} -> {:ok, JsonLineEvent.parse_lines(result.stdout)}
+      {:error, _} = err -> err
     end
   end
 

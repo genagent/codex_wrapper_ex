@@ -188,15 +188,29 @@ defmodule CodexWrapper.Session do
     exec = Exec.new(prompt)
 
     Enum.reduce(merged_opts, exec, fn
-      {:model, v}, e -> Exec.model(e, v)
-      {:sandbox, v}, e -> Exec.sandbox(e, v)
-      {:approval_policy, v}, e -> Exec.approval_policy(e, v)
-      {:full_auto, true}, e -> Exec.full_auto(e)
-      {:skip_git_repo_check, true}, e -> Exec.skip_git_repo_check(e)
-      {:ephemeral, true}, e -> Exec.ephemeral(e)
+      {:model, v}, e ->
+        Exec.model(e, v)
+
+      {:sandbox, v}, e ->
+        Exec.sandbox(e, v)
+
+      {:approval_policy, v}, e ->
+        Exec.approval_policy(e, v)
+
+      {:full_auto, true}, e ->
+        Exec.full_auto(e)
+
+      {:skip_git_repo_check, true}, e ->
+        Exec.skip_git_repo_check(e)
+
+      {:ephemeral, true}, e ->
+        Exec.ephemeral(e)
+
       {:dangerously_bypass_approvals_and_sandbox, true}, e ->
         Exec.dangerously_bypass_approvals_and_sandbox(e)
-      _other, e -> e
+
+      _other, e ->
+        e
     end)
   end
 
@@ -209,13 +223,23 @@ defmodule CodexWrapper.Session do
       |> ExecResume.prompt(prompt)
 
     Enum.reduce(merged_opts, resume, fn
-      {:model, v}, e -> ExecResume.model(e, v)
-      {:full_auto, true}, e -> ExecResume.full_auto(e)
-      {:skip_git_repo_check, true}, e -> ExecResume.skip_git_repo_check(e)
-      {:ephemeral, true}, e -> ExecResume.ephemeral(e)
+      {:model, v}, e ->
+        ExecResume.model(e, v)
+
+      {:full_auto, true}, e ->
+        ExecResume.full_auto(e)
+
+      {:skip_git_repo_check, true}, e ->
+        ExecResume.skip_git_repo_check(e)
+
+      {:ephemeral, true}, e ->
+        ExecResume.ephemeral(e)
+
       {:dangerously_bypass_approvals_and_sandbox, true}, e ->
         ExecResume.dangerously_bypass_approvals_and_sandbox(e)
-      _other, e -> e
+
+      _other, e ->
+        e
     end)
   end
 
@@ -244,10 +268,7 @@ defmodule CodexWrapper.Session do
   end
 
   defp events_to_result(events) do
-    stdout =
-      events
-      |> Enum.map(fn event -> event.raw end)
-      |> Enum.join("\n")
+    stdout = Enum.map_join(events, "\n", fn event -> event.raw end)
 
     %Result{
       stdout: stdout,

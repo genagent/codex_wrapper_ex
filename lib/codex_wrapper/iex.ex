@@ -199,9 +199,7 @@ defmodule CodexWrapper.IEx do
     total = Session.total_cost(session)
     turns = Session.turn_count(session)
 
-    IO.puts(
-      "\e[33m($#{Float.round(total, 4)} total, #{turns} turn#{plural(turns)})\e[0m"
-    )
+    IO.puts("\e[33m($#{Float.round(total, 4)} total, #{turns} turn#{plural(turns)})\e[0m")
   end
 
   @config_keys [:binary, :working_dir, :env, :timeout, :verbose]

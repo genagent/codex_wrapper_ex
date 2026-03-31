@@ -139,8 +139,10 @@ defmodule CodexWrapper.ExecResumeTest do
         |> ExecResume.args()
 
       assert args == [
-               "exec", "resume",
-               "--model", "gpt-5",
+               "exec",
+               "resume",
+               "--model",
+               "gpt-5",
                "--full-auto",
                "--skip-git-repo-check",
                "--json",

@@ -171,22 +171,8 @@ defmodule CodexWrapper.Exec do
     exec = %{exec | json: true}
 
     case execute(exec, config) do
-      {:ok, result} ->
-        events =
-          result.stdout
-          |> String.split("\n", trim: true)
-          |> Enum.filter(&String.starts_with?(String.trim_leading(&1), "{"))
-          |> Enum.flat_map(fn line ->
-            case JsonLineEvent.parse(line) do
-              {:ok, event} -> [event]
-              {:error, _} -> []
-            end
-          end)
-
-        {:ok, events}
-
-      {:error, _} = err ->
-        err
+      {:ok, result} -> {:ok, JsonLineEvent.parse_lines(result.stdout)}
+      {:error, _} = err -> err
     end
   end
 
@@ -255,8 +241,10 @@ defmodule CodexWrapper.Exec do
     |> add_opt("--sandbox", format_sandbox(e.sandbox))
     |> add_opt("--ask-for-approval", format_approval_policy(e.approval_policy))
     |> add_bool("--full-auto", e.full_auto)
-    |> add_bool("--dangerously-bypass-approvals-and-sandbox",
-         e.dangerously_bypass_approvals_and_sandbox)
+    |> add_bool(
+      "--dangerously-bypass-approvals-and-sandbox",
+      e.dangerously_bypass_approvals_and_sandbox
+    )
     |> add_opt("--cd", e.cd)
     |> add_bool("--skip-git-repo-check", e.skip_git_repo_check)
     |> add_list("--add-dir", e.add_dirs)
