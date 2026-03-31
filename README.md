@@ -1,6 +1,10 @@
 # CodexWrapperEx
 
 [![CI](https://github.com/joshrotenberg/codex_wrapper_ex/actions/workflows/ci.yml/badge.svg)](https://github.com/joshrotenberg/codex_wrapper_ex/actions/workflows/ci.yml)
+[![Hex.pm](https://img.shields.io/hexpm/v/codex_wrapper.svg)](https://hex.pm/packages/codex_wrapper)
+[![Hex.pm Downloads](https://img.shields.io/hexpm/dt/codex_wrapper.svg)](https://hex.pm/packages/codex_wrapper)
+[![Docs](https://img.shields.io/badge/hex-docs-blue.svg)](https://hexdocs.pm/codex_wrapper)
+[![License](https://img.shields.io/hexpm/l/codex_wrapper.svg)](https://github.com/joshrotenberg/codex_wrapper_ex/blob/main/LICENSE)
 
 Elixir wrapper for the [Codex CLI](https://github.com/openai/codex).
 
