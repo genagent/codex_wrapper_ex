@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/joshrotenberg/codex_wrapper_ex/compare/v0.2.0...v0.2.1) (2026-03-31)
+
+
+### Bug Fixes
+
+* use Port with closed stdin to prevent Codex CLI hang ([#34](https://github.com/joshrotenberg/codex_wrapper_ex/issues/34)) ([328ea18](https://github.com/joshrotenberg/codex_wrapper_ex/commit/328ea18d495407fb011756b46c5a35dc3e0ebba4)), closes [#33](https://github.com/joshrotenberg/codex_wrapper_ex/issues/33)
+
 ## [0.2.0](https://github.com/joshrotenberg/codex_wrapper_ex/compare/v0.1.0...v0.2.0) (2026-03-31)
 
 
