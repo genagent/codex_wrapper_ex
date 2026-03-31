@@ -26,6 +26,20 @@ defmodule CodexWrapper do
   """
 
   alias CodexWrapper.{Config, Exec, JsonLineEvent, Result, Review}
+  alias CodexWrapper.Commands.Version
+
+  @doc """
+  Get the Codex CLI version.
+
+  ## Examples
+
+      {:ok, %{version: "codex 0.1.0", raw: "codex 0.1.0"}} = CodexWrapper.version()
+  """
+  @spec version(keyword()) :: {:ok, %{version: String.t(), raw: String.t()}} | {:error, term()}
+  def version(opts \\ []) do
+    config = Config.new(opts)
+    Version.execute(config)
+  end
 
   @doc """
   Run an arbitrary CLI command that isn't wrapped by a dedicated module.
