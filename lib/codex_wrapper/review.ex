@@ -160,22 +160,8 @@ defmodule CodexWrapper.Review do
     review = %{review | json: true}
 
     case execute(review, config) do
-      {:ok, result} ->
-        events =
-          result.stdout
-          |> String.split("\n", trim: true)
-          |> Enum.filter(&String.starts_with?(String.trim_leading(&1), "{"))
-          |> Enum.flat_map(fn line ->
-            case JsonLineEvent.parse(line) do
-              {:ok, event} -> [event]
-              {:error, _} -> []
-            end
-          end)
-
-        {:ok, events}
-
-      {:error, _} = err ->
-        err
+      {:ok, result} -> {:ok, JsonLineEvent.parse_lines(result.stdout)}
+      {:error, _} = err -> err
     end
   end
 
@@ -242,8 +228,10 @@ defmodule CodexWrapper.Review do
     |> add_opt("--model", r.model)
     |> add_opt("--title", r.title)
     |> add_bool("--full-auto", r.full_auto)
-    |> add_bool("--dangerously-bypass-approvals-and-sandbox",
-         r.dangerously_bypass_approvals_and_sandbox)
+    |> add_bool(
+      "--dangerously-bypass-approvals-and-sandbox",
+      r.dangerously_bypass_approvals_and_sandbox
+    )
     |> add_bool("--skip-git-repo-check", r.skip_git_repo_check)
     |> add_bool("--ephemeral", r.ephemeral)
     |> add_bool("--json", r.json)

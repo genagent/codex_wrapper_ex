@@ -137,9 +137,12 @@ defmodule CodexWrapper.ExecTest do
 
       assert args == [
                "exec",
-               "--model", "gpt-5",
-               "--sandbox", "workspace-write",
-               "--ask-for-approval", "on-request",
+               "--model",
+               "gpt-5",
+               "--sandbox",
+               "workspace-write",
+               "--ask-for-approval",
+               "on-request",
                "--skip-git-repo-check",
                "--ephemeral",
                "--json",

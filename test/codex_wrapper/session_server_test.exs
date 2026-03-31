@@ -44,7 +44,9 @@ defmodule CodexWrapper.SessionServerTest do
       spec = SessionServer.child_spec(config: config, name: :supervised_codex_test)
 
       assert spec.id == SessionServer
-      assert spec.start == {SessionServer, :start_link, [[config: config, name: :supervised_codex_test]]}
+
+      assert spec.start ==
+               {SessionServer, :start_link, [[config: config, name: :supervised_codex_test]]}
     end
   end
 

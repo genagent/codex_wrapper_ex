@@ -20,18 +20,8 @@ defmodule CodexWrapper.Commands.Mcp do
     args = if opts[:json], do: args ++ ["--json"], else: args
 
     case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} ->
-        if opts[:json] do
-          case Jason.decode(output) do
-            {:ok, data} -> {:ok, data}
-            {:error, reason} -> {:error, {:json_decode, reason}}
-          end
-        else
-          {:ok, String.trim(output)}
-        end
-
-      {output, code} ->
-        {:error, {:exit, code, output}}
+      {output, 0} -> parse_output(output, opts[:json])
+      {output, code} -> {:error, {:exit, code, output}}
     end
   end
 
@@ -48,18 +38,8 @@ defmodule CodexWrapper.Commands.Mcp do
     args = if opts[:json], do: args ++ ["--json"], else: args
 
     case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} ->
-        if opts[:json] do
-          case Jason.decode(output) do
-            {:ok, data} -> {:ok, data}
-            {:error, reason} -> {:error, {:json_decode, reason}}
-          end
-        else
-          {:ok, String.trim(output)}
-        end
-
-      {output, code} ->
-        {:error, {:exit, code, output}}
+      {output, 0} -> parse_output(output, opts[:json])
+      {output, code} -> {:error, {:exit, code, output}}
     end
   end
 
@@ -120,6 +100,15 @@ defmodule CodexWrapper.Commands.Mcp do
       {output, code} -> {:error, {:exit, code, output}}
     end
   end
+
+  defp parse_output(output, true) do
+    case Jason.decode(output) do
+      {:ok, data} -> {:ok, data}
+      {:error, reason} -> {:error, {:json_decode, reason}}
+    end
+  end
+
+  defp parse_output(output, _), do: {:ok, String.trim(output)}
 
   defp env_args(env) when map_size(env) == 0, do: []
 
