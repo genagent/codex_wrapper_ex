@@ -189,15 +189,16 @@ defmodule CodexWrapper.Exec do
   def stream(%__MODULE__{} = exec, %Config{} = config) do
     exec = %{exec | json: true}
     args = Config.base_args(config) ++ args(exec)
+    shell_args = Command.shell_cmd_args(config.binary, args)
 
     port_opts =
-      [:binary, :exit_status, {:line, 1_048_576}, {:args, args}] ++
+      [:binary, :exit_status, {:line, 1_048_576}, {:args, shell_args}] ++
         port_env_opts(config) ++
         port_cd_opts(config)
 
     Stream.resource(
       fn ->
-        Port.open({:spawn_executable, config.binary}, port_opts)
+        Port.open({:spawn_executable, "/bin/sh"}, port_opts)
       end,
       fn port ->
         receive do
