@@ -97,20 +97,20 @@ defmodule CodexWrapper.Session do
   @doc """
   Send a message and return a stream of events.
 
-  Returns `{updated_session, stream}`. The session_id is captured from
-  the stream, so consume the stream before sending the next message.
+  Returns `{session, stream}`. The returned `session` is the **same
+  session passed in** — this function does *not* thread `session_id`
+  across turns. If you need multi-turn continuity, use `send/3`
+  instead, which runs the turn synchronously and updates `session_id`
+  from the final events.
+
+  Use `stream/3` when you want to observe events from a single turn
+  (for example, to render intermediate output as the CLI produces it)
+  and do not need to chain into a follow-up turn on the same thread.
   """
   @spec stream(t(), String.t(), keyword()) :: {t(), Enumerable.t()}
   def stream(%__MODULE__{} = session, prompt, opts \\ []) do
     raw_stream = build_stream(session, prompt, opts)
-
-    session_ref = make_ref()
-    parent = self()
-
-    wrapped_stream =
-      Stream.each(raw_stream, &maybe_capture_session_id(&1, session_ref, parent))
-
-    {%{session | session_id: session_ref}, wrapped_stream}
+    {session, raw_stream}
   end
 
   @doc """
@@ -258,13 +258,6 @@ defmodule CodexWrapper.Session do
     Enum.find_value(events, fn event ->
       JsonLineEvent.get(event, "session_id")
     end)
-  end
-
-  defp maybe_capture_session_id(event, ref, parent) do
-    case JsonLineEvent.get(event, "session_id") do
-      nil -> :ok
-      sid -> Kernel.send(parent, {ref, :session_id, sid})
-    end
   end
 
   defp events_to_result(events) do
