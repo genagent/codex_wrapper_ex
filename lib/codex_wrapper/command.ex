@@ -44,12 +44,13 @@ defmodule CodexWrapper.Command do
     cd = Keyword.get(opts, :cd)
     env = Keyword.get(opts, :env, [])
 
-    # Build the command string with stdin redirected from /dev/null
-    escaped_args = Enum.map_join(args, " ", &shell_escape/1)
-    shell_cmd = "#{binary} #{escaped_args} < /dev/null 2>&1"
-
     port_opts =
-      [:binary, :exit_status, :stderr_to_stdout, args: ["-c", shell_cmd]]
+      [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: shell_cmd_args(binary, args, capture_stderr: true)
+      ]
       |> maybe_add(:cd, cd)
       |> maybe_add_env(env)
 
@@ -67,7 +68,26 @@ defmodule CodexWrapper.Command do
     end
   end
 
-  defp shell_escape(arg) do
+  # Build the `:args` list for a `Port.open({:spawn_executable, "/bin/sh"}, ...)`
+  # call that runs `binary` with `args` and redirects stdin from `/dev/null`.
+  # Shared by the execute path (`run/3`) and the streaming paths
+  # (`Exec.stream/2`, `ExecResume.stream/2`) so the stdin-closing
+  # mechanism lives in one place.
+  #
+  # Pass `capture_stderr: true` to merge stderr into stdout (execute path
+  # collects all output before parsing). Leave it off for streaming so
+  # stderr flows to the parent's stderr without contaminating NDJSON on stdout.
+  @doc false
+  @spec shell_cmd_args(String.t(), [String.t()], keyword()) :: [String.t()]
+  def shell_cmd_args(binary, args, opts \\ []) do
+    escaped_args = Enum.map_join(args, " ", &shell_escape/1)
+    redirect = if Keyword.get(opts, :capture_stderr, false), do: " 2>&1", else: ""
+    shell_cmd = "#{binary} #{escaped_args} < /dev/null#{redirect}"
+    ["-c", shell_cmd]
+  end
+
+  @doc false
+  def shell_escape(arg) do
     if String.contains?(arg, ["'", " ", "\"", "\\", "(", ")", "$", "`", "!", "&", "|", ";", "\n"]) do
       "'" <> String.replace(arg, "'", "'\\''") <> "'"
     else
