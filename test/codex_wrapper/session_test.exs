@@ -1,7 +1,9 @@
 defmodule CodexWrapper.SessionTest do
   use ExUnit.Case, async: true
 
-  alias CodexWrapper.{Config, Session}
+  alias CodexWrapper.{Config, JsonLineEvent, Session}
+
+  defp event(type, data), do: %JsonLineEvent{event_type: type, data: data, raw: ""}
 
   describe "new/2" do
     test "creates session with config" do
@@ -86,6 +88,51 @@ defmodule CodexWrapper.SessionTest do
       config = Config.new()
       session = Session.new(config)
       assert Session.history(session) == Session.turns(session)
+    end
+  end
+
+  describe "extract_session_id/1" do
+    test "extracts thread_id from a thread.started event" do
+      events = [
+        event("thread.started", %{"thread_id" => "019d799c-09f1-7ea0-8e5a-7b42a640c103"}),
+        event("turn.started", %{}),
+        event("turn.completed", %{"usage" => %{"input_tokens" => 10, "output_tokens" => 2}})
+      ]
+
+      assert Session.extract_session_id(events) == "019d799c-09f1-7ea0-8e5a-7b42a640c103"
+    end
+
+    test "falls back to session_id if thread_id is absent" do
+      # Defensive path: older Codex versions or forks that may not emit thread_id.
+      events = [
+        event("result", %{"session_id" => "legacy-sid-123"})
+      ]
+
+      assert Session.extract_session_id(events) == "legacy-sid-123"
+    end
+
+    test "prefers thread_id when both are present" do
+      events = [
+        event("thread.started", %{
+          "thread_id" => "new-thread",
+          "session_id" => "old-sid"
+        })
+      ]
+
+      assert Session.extract_session_id(events) == "new-thread"
+    end
+
+    test "returns nil when neither thread_id nor session_id is present" do
+      events = [
+        event("turn.started", %{}),
+        event("turn.completed", %{"usage" => %{"input_tokens" => 1, "output_tokens" => 1}})
+      ]
+
+      assert Session.extract_session_id(events) == nil
+    end
+
+    test "returns nil for an empty event list" do
+      assert Session.extract_session_id([]) == nil
     end
   end
 end

@@ -254,9 +254,16 @@ defmodule CodexWrapper.Session do
     ExecResume.stream(exec_resume, session.config)
   end
 
-  defp extract_session_id(events) do
+  # Public with @doc false so the session-id-capture logic can be covered
+  # by regression tests — see SessionTest `describe "extract_session_id/1"`.
+  # Codex 0.119+ emits the thread identifier as `"thread_id"` in the first
+  # `thread.started` event. Older versions (or other forks) may still use
+  # `"session_id"`, so we check both.
+  @doc false
+  @spec extract_session_id([JsonLineEvent.t()]) :: String.t() | nil
+  def extract_session_id(events) do
     Enum.find_value(events, fn event ->
-      JsonLineEvent.get(event, "session_id")
+      JsonLineEvent.get(event, "thread_id") || JsonLineEvent.get(event, "session_id")
     end)
   end
 
