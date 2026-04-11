@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2](https://github.com/joshrotenberg/codex_wrapper_ex/compare/v0.2.1...v0.2.2) (2026-04-10)
+
+
+### Bug Fixes
+
+* close stdin on streaming Port paths ([#38](https://github.com/joshrotenberg/codex_wrapper_ex/issues/38)) ([add5f29](https://github.com/joshrotenberg/codex_wrapper_ex/commit/add5f2995e873d9da00dc2b72d9771fd558c24e7)), closes [#37](https://github.com/joshrotenberg/codex_wrapper_ex/issues/37)
+* extract thread_id from Codex events for Session.send multi-turn ([#41](https://github.com/joshrotenberg/codex_wrapper_ex/issues/41)) ([d43466d](https://github.com/joshrotenberg/codex_wrapper_ex/commit/d43466da1ce81c3c650f9f873aaea7b2e9b42e58)), closes [#40](https://github.com/joshrotenberg/codex_wrapper_ex/issues/40)
+
 ## [0.2.1](https://github.com/joshrotenberg/codex_wrapper_ex/compare/v0.2.0...v0.2.1) (2026-03-31)
 
 
