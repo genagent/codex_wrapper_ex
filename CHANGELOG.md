@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/genagent/codex_wrapper_ex/compare/v0.2.2...v0.2.3) (2026-04-11)
+
+
+### Bug Fixes
+
+* update source URL to genagent org ([#42](https://github.com/genagent/codex_wrapper_ex/issues/42)) ([b6526b3](https://github.com/genagent/codex_wrapper_ex/commit/b6526b346ea24b25538dfacaadaad77aa357687c))
+
 ## [0.2.2](https://github.com/joshrotenberg/codex_wrapper_ex/compare/v0.2.1...v0.2.2) (2026-04-10)
 
 
