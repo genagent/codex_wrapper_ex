@@ -2,7 +2,7 @@ defmodule CodexWrapper.Result do
   @moduledoc """
   Result from a completed exec command.
 
-  Maps to the Rust `CommandOutput` — the raw output from `System.cmd`.
+  Maps to the Rust `CommandOutput` -- the raw output from `System.cmd`.
   """
 
   @type t :: %__MODULE__{

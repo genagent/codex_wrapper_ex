@@ -1,6 +1,6 @@
 defmodule CodexWrapper.Commands.Sandbox do
   @moduledoc """
-  Sandbox command — run a command inside the Codex sandbox.
+  Sandbox command -- run a command inside the Codex sandbox.
 
   Wraps `codex sandbox <platform> -- <command> [args...]`.
 

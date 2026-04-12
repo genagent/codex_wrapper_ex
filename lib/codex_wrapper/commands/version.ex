@@ -1,6 +1,6 @@
 defmodule CodexWrapper.Commands.Version do
   @moduledoc """
-  Version command — parse `codex --version` output.
+  Version command -- parse `codex --version` output.
   """
 
   alias CodexWrapper.Config

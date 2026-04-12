@@ -1,6 +1,6 @@
 defmodule CodexWrapper.Commands.Apply do
   @moduledoc """
-  Apply command — apply an agent diff as git apply.
+  Apply command -- apply an agent diff as git apply.
 
   Wraps `codex apply <task-id>`.
 
