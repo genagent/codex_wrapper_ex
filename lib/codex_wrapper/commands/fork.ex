@@ -1,6 +1,6 @@
 defmodule CodexWrapper.Commands.Fork do
   @moduledoc """
-  Fork command — fork an existing session to try a different approach.
+  Fork command -- fork an existing session to try a different approach.
 
   Wraps `codex fork [session-id] [prompt]` with the full set of CLI flags.
 

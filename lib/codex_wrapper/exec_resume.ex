@@ -1,6 +1,6 @@
 defmodule CodexWrapper.ExecResume do
   @moduledoc """
-  ExecResume command — resume an existing session non-interactively.
+  ExecResume command -- resume an existing session non-interactively.
 
   Wraps `codex exec resume [session_id] [prompt]` with the full set of CLI flags.
 

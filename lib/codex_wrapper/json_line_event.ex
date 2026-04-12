@@ -8,10 +8,10 @@ defmodule CodexWrapper.JsonLineEvent do
   ## Event types
 
   Common event types include:
-  - `"thread.started"` — thread initialization
-  - `"turn.started"` — turn began
-  - `"item.completed"` — item completed
-  - `"turn.completed"` — turn finished
+  - `"thread.started"` -- thread initialization
+  - `"turn.started"` -- turn began
+  - `"item.completed"` -- item completed
+  - `"turn.completed"` -- turn finished
   """
 
   @type t :: %__MODULE__{

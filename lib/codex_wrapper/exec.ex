@@ -1,6 +1,6 @@
 defmodule CodexWrapper.Exec do
   @moduledoc """
-  Exec command — the primary interface for non-interactive prompts.
+  Exec command -- the primary interface for non-interactive prompts.
 
   Wraps `codex exec <prompt>` with the full set of CLI flags.
 

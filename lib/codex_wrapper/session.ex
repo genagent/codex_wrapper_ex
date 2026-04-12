@@ -98,7 +98,7 @@ defmodule CodexWrapper.Session do
   Send a message and return a stream of events.
 
   Returns `{session, stream}`. The returned `session` is the **same
-  session passed in** — this function does *not* thread `session_id`
+  session passed in** -- this function does *not* thread `session_id`
   across turns. If you need multi-turn continuity, use `send/3`
   instead, which runs the turn synchronously and updates `session_id`
   from the final events.
@@ -255,7 +255,7 @@ defmodule CodexWrapper.Session do
   end
 
   # Public with @doc false so the session-id-capture logic can be covered
-  # by regression tests — see SessionTest `describe "extract_session_id/1"`.
+  # by regression tests -- see SessionTest `describe "extract_session_id/1"`.
   # Codex 0.119+ emits the thread identifier as `"thread_id"` in the first
   # `thread.started` event. Older versions (or other forks) may still use
   # `"session_id"`, so we check both.

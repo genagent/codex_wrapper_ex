@@ -1,6 +1,6 @@
 defmodule CodexWrapper.Commands.Auth do
   @moduledoc """
-  Authentication commands — login, logout, status.
+  Authentication commands -- login, logout, status.
 
   Wraps `codex login`, `codex logout`, and `codex login status`.
   """

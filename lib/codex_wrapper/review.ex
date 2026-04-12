@@ -1,6 +1,6 @@
 defmodule CodexWrapper.Review do
   @moduledoc """
-  Review command — code review with git integration.
+  Review command -- code review with git integration.
 
   Wraps `codex exec review` with review-specific CLI flags.
 
