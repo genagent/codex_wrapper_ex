@@ -25,7 +25,7 @@ defmodule CodexWrapper.Commands.Fork do
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, Result}
+  alias CodexWrapper.{Command, Config, Result, Telemetry}
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
   @type approval_policy :: :untrusted | :on_failure | :on_request | :never
@@ -152,7 +152,13 @@ defmodule CodexWrapper.Commands.Fork do
   """
   @spec execute(t(), Config.t()) :: {:ok, Result.t()} | {:error, term()}
   def execute(%__MODULE__{} = fork, %Config{} = config) do
-    Command.run(__MODULE__, fork, config)
+    Telemetry.span(
+      [:codex_wrapper, :session, :turn],
+      Telemetry.session_turn_metadata(:session_fork, fork, fork.session_id),
+      fn ->
+        Command.run(__MODULE__, fork, config)
+      end
+    )
   end
 
   # --- Command behaviour ---

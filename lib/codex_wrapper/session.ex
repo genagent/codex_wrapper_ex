@@ -24,7 +24,7 @@ defmodule CodexWrapper.Session do
       session = CodexWrapper.Session.resume(config, "session-id-abc")
   """
 
-  alias CodexWrapper.{Config, Exec, ExecResume, JsonLineEvent, Result}
+  alias CodexWrapper.{Config, Exec, ExecResume, JsonLineEvent, Result, Telemetry}
 
   @type t :: %__MODULE__{
           config: Config.t(),
@@ -159,28 +159,36 @@ defmodule CodexWrapper.Session do
   defp execute_turn(%__MODULE__{session_id: nil} = session, prompt, per_call_opts) do
     exec = build_exec(session, prompt, per_call_opts)
 
-    case Exec.execute_json(exec, session.config) do
-      {:ok, events} ->
-        result = events_to_result(events)
-        {:ok, result, events}
+    metadata = Telemetry.session_turn_metadata(:session_exec, exec, session.session_id)
 
-      {:error, _} = error ->
-        error
-    end
+    Telemetry.span([:codex_wrapper, :session, :turn], metadata, fn ->
+      case Exec.execute_json(exec, session.config) do
+        {:ok, events} ->
+          result = events_to_result(events)
+          {:ok, result, events}
+
+        {:error, _} = error ->
+          error
+      end
+    end)
   end
 
   defp execute_turn(%__MODULE__{session_id: sid} = session, prompt, per_call_opts)
        when is_binary(sid) do
     exec_resume = build_exec_resume(session, prompt, per_call_opts)
 
-    case ExecResume.execute_json(exec_resume, session.config) do
-      {:ok, events} ->
-        result = events_to_result(events)
-        {:ok, result, events}
+    metadata = Telemetry.session_turn_metadata(:session_resume, exec_resume, session.session_id)
 
-      {:error, _} = error ->
-        error
-    end
+    Telemetry.span([:codex_wrapper, :session, :turn], metadata, fn ->
+      case ExecResume.execute_json(exec_resume, session.config) do
+        {:ok, events} ->
+          result = events_to_result(events)
+          {:ok, result, events}
+
+        {:error, _} = error ->
+          error
+      end
+    end)
   end
 
   defp build_exec(session, prompt, per_call_opts) do

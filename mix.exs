@@ -28,6 +28,7 @@ defmodule CodexWrapperEx.MixProject do
   defp deps do
     [
       {:jason, "~> 1.4"},
+      {:telemetry, "~> 1.0"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}

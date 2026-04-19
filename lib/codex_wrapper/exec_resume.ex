@@ -25,7 +25,7 @@ defmodule CodexWrapper.ExecResume do
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, JsonLineEvent, Result}
+  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Telemetry}
 
   @type t :: %__MODULE__{
           session_id: String.t() | nil,
@@ -143,7 +143,13 @@ defmodule CodexWrapper.ExecResume do
   """
   @spec execute(t(), Config.t()) :: {:ok, Result.t()} | {:error, term()}
   def execute(%__MODULE__{} = exec, %Config{} = config) do
-    Command.run(__MODULE__, exec, config)
+    Telemetry.span(
+      [:codex_wrapper, :exec],
+      Telemetry.exec_metadata(:exec_resume, exec),
+      fn ->
+        Command.run(__MODULE__, exec, config)
+      end
+    )
   end
 
   @doc """
@@ -170,43 +176,50 @@ defmodule CodexWrapper.ExecResume do
   @spec stream(t(), Config.t()) :: Enumerable.t()
   def stream(%__MODULE__{} = exec, %Config{} = config) do
     exec = %{exec | json: true}
-    args = Config.base_args(config) ++ args(exec)
-    shell_args = Command.shell_cmd_args(config.binary, args)
 
-    port_opts =
-      [:binary, :exit_status, {:line, 1_048_576}, {:args, shell_args}] ++
-        port_env_opts(config) ++
-        port_cd_opts(config)
-
-    Stream.resource(
+    Telemetry.span(
+      [:codex_wrapper, :stream],
+      Telemetry.exec_metadata(:exec_resume_stream, exec),
       fn ->
-        Port.open({:spawn_executable, "/bin/sh"}, port_opts)
-      end,
-      fn port ->
-        receive do
-          {^port, {:data, {:eol, line}}} ->
-            case JsonLineEvent.parse(line) do
-              {:ok, event} -> {[event], port}
-              {:error, _} -> {[], port}
+        args = Config.base_args(config) ++ args(exec)
+        shell_args = Command.shell_cmd_args(config.binary, args)
+
+        port_opts =
+          [:binary, :exit_status, {:line, 1_048_576}, {:args, shell_args}] ++
+            port_env_opts(config) ++
+            port_cd_opts(config)
+
+        Stream.resource(
+          fn ->
+            Port.open({:spawn_executable, "/bin/sh"}, port_opts)
+          end,
+          fn port ->
+            receive do
+              {^port, {:data, {:eol, line}}} ->
+                case JsonLineEvent.parse(line) do
+                  {:ok, event} -> {[event], port}
+                  {:error, _} -> {[], port}
+                end
+
+              {^port, {:data, {:noeol, _partial}}} ->
+                {[], port}
+
+              {^port, {:exit_status, _code}} ->
+                {:halt, port}
+            after
+              300_000 -> {:halt, port}
             end
+          end,
+          fn port ->
+            send(port, {self(), :close})
 
-          {^port, {:data, {:noeol, _partial}}} ->
-            {[], port}
-
-          {^port, {:exit_status, _code}} ->
-            {:halt, port}
-        after
-          300_000 -> {:halt, port}
-        end
-      end,
-      fn port ->
-        send(port, {self(), :close})
-
-        receive do
-          {^port, :closed} -> :ok
-        after
-          5_000 -> :ok
-        end
+            receive do
+              {^port, :closed} -> :ok
+            after
+              5_000 -> :ok
+            end
+          end
+        )
       end
     )
   end
