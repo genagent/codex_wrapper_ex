@@ -306,6 +306,30 @@ CodexWrapper.raw(["some", "new", "subcommand"])
 | `:timeout` | `pos_integer()` | Command timeout in milliseconds |
 | `:verbose` | `boolean()` | Enable verbose output |
 
+### Leak-free execution (optional)
+
+By default a synchronous command runs the `codex` CLI under a `/bin/sh`
+`Port`. On a timeout the BEAM `Task` is killed and the port closes, but no
+signal reaches the `codex` process group, so `codex` and any stdio MCP
+server it spawned can keep running as orphans.
+
+To have a timeout (or BEAM death) kill the whole `codex` process group,
+add [`forcola`](https://hex.pm/packages/forcola) and select its runner:
+
+```elixir
+# mix.exs
+{:forcola, "~> 0.3"}
+
+# config/config.exs
+config :codex_wrapper, runner: CodexWrapper.Runner.Forcola
+```
+
+`CodexWrapper.Runner.Forcola` compiles only when `forcola` is present, so
+the dependency stays optional and the default path is unchanged. forcola
+is POSIX-only (macOS and Linux). This covers the one-shot commands
+(`CodexWrapper.exec/2`, `Exec.execute/2`, `ExecResume.execute/2`,
+`Review.execute/2`); the streaming paths still use the default runner.
+
 ### Exec options
 
 | Option | Type | Description |
@@ -338,6 +362,9 @@ CodexWrapper.raw(["some", "new", "subcommand"])
 | `CodexWrapper.Retry` | Exponential backoff retry |
 | `CodexWrapper.IEx` | Interactive REPL helpers |
 | `CodexWrapper.Command` | Behaviour for CLI commands |
+| `CodexWrapper.Runner` | Behaviour selecting how one-shot subprocesses execute |
+| `CodexWrapper.Runner.Port` | Default runner (`/bin/sh` Port with closed stdin) |
+| `CodexWrapper.Runner.Forcola` | Optional leak-free runner via `forcola` |
 | `CodexWrapper.Commands.Auth` | Authentication (login/logout/status) |
 | `CodexWrapper.Commands.Features` | Feature flag management |
 | `CodexWrapper.Commands.Mcp` | MCP server CRUD |
