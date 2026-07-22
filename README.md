@@ -265,10 +265,25 @@ Run commands inside Codex's sandbox:
 ```elixir
 alias CodexWrapper.Commands.Sandbox
 
-Sandbox.new(:macos, "python3")
+Sandbox.new("python3")
 |> Sandbox.args(["script.py", "--flag"])
 |> Sandbox.execute(config)
 ```
+
+Sandbox state and permission profiles:
+
+```elixir
+Sandbox.new("pytest")
+|> Sandbox.permission_profile("ci")
+|> Sandbox.sandbox_state_readable_root("/usr/share")
+|> Sandbox.sandbox_state_disable_network()
+|> Sandbox.cd("/src")
+|> Sandbox.execute(config)
+```
+
+`Sandbox.new/1` replaces the old `Sandbox.new(platform, command)`. The
+Codex CLI dropped the platform subcommand and infers the platform from
+the host, so passing an atom now raises with a migration message.
 
 ## Shell completions
 
