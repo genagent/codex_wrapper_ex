@@ -23,7 +23,8 @@ defmodule CodexWrapper.Exec do
   alias CodexWrapper.{Command, Config, JsonLineEvent, Result}
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
-  @type approval_policy :: :untrusted | :on_failure | :on_request | :never
+  @type approval_policy :: :untrusted | :on_request | :never
+  @type web_search_mode :: :cached | :indexed | :live | :disabled
 
   @type t :: %__MODULE__{
           prompt: String.t(),
@@ -35,7 +36,7 @@ defmodule CodexWrapper.Exec do
           cd: String.t() | nil,
           skip_git_repo_check: boolean(),
           add_dirs: [String.t()],
-          search: boolean(),
+          search: web_search_mode() | nil,
           ephemeral: boolean(),
           output_schema: String.t() | nil,
           json: boolean(),
@@ -54,10 +55,10 @@ defmodule CodexWrapper.Exec do
     :cd,
     :output_schema,
     :output_last_message,
+    :search,
     full_auto: false,
     dangerously_bypass_approvals_and_sandbox: false,
     skip_git_repo_check: false,
-    search: false,
     ephemeral: false,
     json: false,
     add_dirs: [],
@@ -87,9 +88,29 @@ defmodule CodexWrapper.Exec do
   @spec sandbox(t(), sandbox_mode()) :: t()
   def sandbox(%__MODULE__{} = e, mode), do: %{e | sandbox: mode}
 
-  @doc "Set the approval policy."
+  @doc """
+  Set the approval policy.
+
+  One of `:untrusted`, `:on_request`, or `:never`. Emitted as the
+  `-c approval_policy="<value>"` config override: codex-cli 0.14x removed
+  the `--ask-for-approval` flag from `exec`, and the config key is the
+  supported equivalent.
+
+  `:on_failure` was accepted by the old flag and is no longer a valid
+  policy; passing it raises.
+  """
   @spec approval_policy(t(), approval_policy()) :: t()
-  def approval_policy(%__MODULE__{} = e, policy), do: %{e | approval_policy: policy}
+  def approval_policy(%__MODULE__{}, :on_failure) do
+    raise ArgumentError, """
+    :on_failure is no longer a valid approval policy.
+
+    The Codex CLI dropped it along with the --ask-for-approval flag.
+    Valid policies are :untrusted, :on_request, and :never.
+    """
+  end
+
+  def approval_policy(%__MODULE__{} = e, policy) when policy in [:untrusted, :on_request, :never],
+    do: %{e | approval_policy: policy}
 
   @doc """
   Enable full-auto mode.
@@ -118,9 +139,25 @@ defmodule CodexWrapper.Exec do
   @spec add_dir(t(), String.t()) :: t()
   def add_dir(%__MODULE__{} = e, dir), do: %{e | add_dirs: e.add_dirs ++ [dir]}
 
-  @doc "Enable live web search."
+  @doc """
+  Enable live web search.
+
+  Shorthand for `search(exec, :live)`.
+  """
   @spec search(t()) :: t()
-  def search(%__MODULE__{} = e), do: %{e | search: true}
+  def search(%__MODULE__{} = e), do: search(e, :live)
+
+  @doc """
+  Set the web search mode.
+
+  One of `:cached`, `:indexed`, `:live`, or `:disabled`. Emitted as the
+  `-c web_search="<mode>"` config override: codex-cli 0.14x removed the
+  `--search` flag from `exec`, and the config key is the supported
+  equivalent. `:live` is what `--search` used to mean.
+  """
+  @spec search(t(), web_search_mode()) :: t()
+  def search(%__MODULE__{} = e, mode) when mode in [:cached, :indexed, :live, :disabled],
+    do: %{e | search: mode}
 
   @doc "Enable ephemeral mode (no session persistence)."
   @spec ephemeral(t()) :: t()
@@ -240,13 +277,12 @@ defmodule CodexWrapper.Exec do
   @impl Command
   def args(%__MODULE__{} = e) do
     ["exec"]
-    |> add_list("-c", e.config_overrides)
+    |> add_list("-c", config_overrides(e))
     |> add_list("--enable", e.enabled_features)
     |> add_list("--disable", e.disabled_features)
     |> add_list("--image", e.images)
     |> add_opt("--model", e.model)
     |> add_opt("--sandbox", format_sandbox(effective_sandbox(e)))
-    |> add_opt("--ask-for-approval", format_approval_policy(e.approval_policy))
     |> add_bool(
       "--dangerously-bypass-approvals-and-sandbox",
       e.dangerously_bypass_approvals_and_sandbox
@@ -254,7 +290,6 @@ defmodule CodexWrapper.Exec do
     |> add_opt("--cd", e.cd)
     |> add_bool("--skip-git-repo-check", e.skip_git_repo_check)
     |> add_list("--add-dir", e.add_dirs)
-    |> add_bool("--search", e.search)
     |> add_bool("--ephemeral", e.ephemeral)
     |> add_opt("--output-schema", e.output_schema)
     |> add_bool("--json", e.json)
@@ -296,9 +331,31 @@ defmodule CodexWrapper.Exec do
   defp format_sandbox(:workspace_write), do: "workspace-write"
   defp format_sandbox(:danger_full_access), do: "danger-full-access"
 
-  defp format_approval_policy(nil), do: nil
+  # `--search` and `--ask-for-approval` were both removed from `codex exec`
+  # in 0.14x; their config keys are the supported equivalents, so both
+  # builder options fold into the `-c` overrides rather than dropping.
+  # User-supplied overrides come first, so an explicit `config(...)` still
+  # wins on a last-wins CLI.
+  defp config_overrides(%__MODULE__{} = e) do
+    e.config_overrides ++ approval_override(e) ++ web_search_override(e)
+  end
+
+  defp approval_override(%__MODULE__{approval_policy: nil}), do: []
+
+  defp approval_override(%__MODULE__{approval_policy: policy}),
+    do: [~s(approval_policy="#{format_approval_policy(policy)}")]
+
+  defp web_search_override(%__MODULE__{search: nil}), do: []
+
+  defp web_search_override(%__MODULE__{search: mode}),
+    do: [~s(web_search="#{format_web_search(mode)}")]
+
+  defp format_web_search(:cached), do: "cached"
+  defp format_web_search(:indexed), do: "indexed"
+  defp format_web_search(:live), do: "live"
+  defp format_web_search(:disabled), do: "disabled"
+
   defp format_approval_policy(:untrusted), do: "untrusted"
-  defp format_approval_policy(:on_failure), do: "on-failure"
   defp format_approval_policy(:on_request), do: "on-request"
   defp format_approval_policy(:never), do: "never"
 

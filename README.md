@@ -111,10 +111,29 @@ config = Config.new(working_dir: "/path/to/project")
 Exec.new("Fix the tests")
 |> Exec.model("o3")
 |> Exec.sandbox(:workspace_write)
-|> Exec.approval_policy(:on_failure)
+|> Exec.approval_policy(:never)
 |> Exec.search()
 |> Exec.execute(config)
 ```
+
+`approval_policy/2` takes `:untrusted`, `:on_request`, or `:never`, and
+emits `-c approval_policy="<value>"`. The Codex CLI removed the
+`--ask-for-approval` flag from `exec` in 0.14x; the config key is the
+supported equivalent. `:on_failure` was dropped along with the flag and
+now raises.
+
+`search/1` enables live web search and `search/2` selects a mode
+(`:cached`, `:indexed`, `:live`, `:disabled`):
+
+```elixir
+Exec.new("What changed in OTP 27?")
+|> Exec.search(:cached)
+|> Exec.execute(config)
+```
+
+Both emit `-c web_search="<mode>"`. The Codex CLI removed the `--search`
+flag from `exec` in 0.14x; the config key is the supported equivalent,
+and `:live` is what `--search` used to mean.
 
 ## Review builder
 
@@ -137,10 +156,10 @@ call wins over it.
 
 ## Session resumption
 
-Resume a previous session or fork from one:
+Resume a previous session:
 
 ```elixir
-alias CodexWrapper.{Config, ExecResume, Commands.Fork}
+alias CodexWrapper.{Config, ExecResume}
 
 config = Config.new()
 
@@ -154,14 +173,19 @@ ExecResume.new()
 ExecResume.new()
 |> ExecResume.last()
 |> ExecResume.execute(config)
-
-# Fork a session into a new branch
-Fork.new()
-|> Fork.session_id("session-to-fork")
-|> Fork.prompt("Take a different approach")
-|> Fork.model("o3")
-|> Fork.execute(config)
 ```
+
+### Forking
+
+`CodexWrapper.Commands.Fork` was removed. `codex fork` is an interactive
+TUI command with no non-interactive path -- piping a prompt to it fails
+with `stdin is not a terminal` -- so it cannot be driven from a library.
+
+`ExecResume` is the closest available alternative, but it is **not** a
+fork: it resumes a session in place and adds to that session's history,
+where forking would branch a new session and leave the original
+untouched. There is currently no way to branch a session
+non-interactively.
 
 ## Retry with backoff
 
@@ -270,10 +294,25 @@ Run commands inside Codex's sandbox:
 ```elixir
 alias CodexWrapper.Commands.Sandbox
 
-Sandbox.new(:macos, "python3")
+Sandbox.new("python3")
 |> Sandbox.args(["script.py", "--flag"])
 |> Sandbox.execute(config)
 ```
+
+Sandbox state and permission profiles:
+
+```elixir
+Sandbox.new("pytest")
+|> Sandbox.permission_profile("ci")
+|> Sandbox.sandbox_state_readable_root("/usr/share")
+|> Sandbox.sandbox_state_disable_network()
+|> Sandbox.cd("/src")
+|> Sandbox.execute(config)
+```
+
+`Sandbox.new/1` replaces the old `Sandbox.new(platform, command)`. The
+Codex CLI dropped the platform subcommand and infers the platform from
+the host, so passing an atom now raises with a migration message.
 
 ## Shell completions
 
