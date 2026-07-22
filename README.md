@@ -350,21 +350,23 @@ CodexWrapper.raw(["some", "new", "subcommand"])
 | `:timeout` | `pos_integer()` | Command timeout in milliseconds |
 | `:verbose` | `boolean()` | Enable verbose output |
 
-### Process-group cleanup with forcola
+### Runners: process-group cleanup with forcola
 
-By default the one-shot execution path (`Exec.execute/2`,
-`ExecResume.execute/2`, `Review.execute/2`, `CodexWrapper.exec/2`) runs
-`codex` under a `/bin/sh` wrapper and bounds it with a BEAM `Task`
-timeout. On timeout the BEAM task is killed, but the `codex` process it
-launched (and any stdio MCP servers `codex` spawned) can survive,
-reparented to init.
+Synchronous commands (`CodexWrapper.exec/2`, `Exec.execute/2`,
+`ExecResume.execute/2`, `Review.execute/2`) route through a runner
+module. The default, `CodexWrapper.Runner.Port`, runs `codex` under a
+`/bin/sh` wrapper with stdin closed and bounds it with a BEAM `Task`
+timeout. On timeout the BEAM task is killed, but no signal reaches the
+`codex` process group, so `codex` and any stdio MCP servers it spawned
+can survive, reparented to init.
 
-Adding the optional [`forcola`](https://hexdocs.pm/forcola) dependency
-lets you route one-shot runs through a Rust shim that puts `codex` in
-its own process group and kills the whole group (SIGTERM then SIGKILL)
-on timeout, on close, or when the BEAM dies, so `codex` and its MCP
-servers are reaped together. `forcola` is POSIX-only (macOS and Linux)
-and ships precompiled shim binaries, so no Rust toolchain is required.
+The optional [`forcola`](https://hexdocs.pm/forcola) dependency provides
+`CodexWrapper.Runner.Forcola`, which routes runs through a Rust shim that
+puts `codex` in its own process group and kills the whole group (SIGTERM
+then SIGKILL) on timeout, on close, or when the BEAM dies, so `codex` and
+its MCP servers are reaped together. `forcola` is POSIX-only (macOS and
+Linux) and ships precompiled shim binaries, so no Rust toolchain is
+required.
 
 ```elixir
 # mix.exs
@@ -373,11 +375,19 @@ and ships precompiled shim binaries, so no Rust toolchain is required.
 
 ```elixir
 # config/config.exs
+config :codex_wrapper, runner: CodexWrapper.Runner.Forcola
+```
+
+`:forcola` and `:task` work as shorthand for the two built-in runners.
+`:forcola` falls back to the default runner when the dependency is
+absent, so it is safe to set unconditionally:
+
+```elixir
 config :codex_wrapper, runner: :forcola
 ```
 
-The forcola runner is used only when both the config is set and the
-dependency is loaded; otherwise the default runner is unchanged.
+`CodexWrapper.Runner.Forcola` compiles only when `forcola` is present, so
+the dependency stays optional and the default path is unchanged.
 `forcola` requires a finite timeout, so when a command's `:timeout` is
 `nil` the run falls back to `:forcola_default_timeout_ms` (default
 `300_000`) instead of running unbounded:
@@ -386,8 +396,8 @@ dependency is loaded; otherwise the default runner is unchanged.
 config :codex_wrapper, runner: :forcola, forcola_default_timeout_ms: 120_000
 ```
 
-The streaming paths (`Exec.stream/2` and friends) still use the
-built-in `Port`; forcola-backed streaming is a planned follow-up.
+The streaming paths (`Exec.stream/2` and friends) still use the built-in
+`Port`; forcola-backed streaming is a planned follow-up (see #48).
 
 ### Exec options
 
@@ -421,6 +431,9 @@ built-in `Port`; forcola-backed streaming is a planned follow-up.
 | `CodexWrapper.Retry` | Exponential backoff retry |
 | `CodexWrapper.IEx` | Interactive REPL helpers |
 | `CodexWrapper.Command` | Behaviour for CLI commands |
+| `CodexWrapper.Runner` | Behaviour selecting how one-shot subprocesses execute |
+| `CodexWrapper.Runner.Port` | Default runner (`/bin/sh` Port with closed stdin) |
+| `CodexWrapper.Runner.Forcola` | Optional leak-free runner via `forcola` |
 | `CodexWrapper.Commands.Auth` | Authentication (login/logout/status) |
 | `CodexWrapper.Commands.Features` | Feature flag management |
 | `CodexWrapper.Commands.Mcp` | MCP server CRUD |
