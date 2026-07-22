@@ -11,7 +11,11 @@ defmodule CodexWrapperEx.MixProject do
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      dialyzer: [plt_file: {:no_warn, "_build/dev/dialyxir_#{System.otp_release()}.plt"}],
+      dialyzer: [
+        plt_file: {:no_warn, "_build/dev/dialyxir_#{System.otp_release()}.plt"},
+        # `mix codex.contract` is a Mix task, so Mix must be in the PLT.
+        plt_add_apps: [:mix]
+      ],
       docs: docs(),
       package: package(),
       name: "CodexWrapper",

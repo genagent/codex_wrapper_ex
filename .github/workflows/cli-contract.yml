@@ -1,0 +1,90 @@
+name: CLI contract
+
+# The wrapper drifted silently once: Codex went 0.119 to 0.145 in roughly
+# three months and removed three flags along the way, with nothing in CI
+# noticing (see #52, #64). This job watches for that.
+#
+# Deliberately NOT run on pull_request: a new upstream release breaking
+# the check is information, not a reason to block unrelated work.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  contract:
+    name: Flags vs latest codex CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "27"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install latest codex CLI
+        run: npm install -g @openai/codex
+
+      - name: Record CLI version
+        run: |
+          echo "### codex CLI" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          codex --version >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Check emitted flags against the CLI
+        id: contract
+        run: |
+          set +e
+          mix codex.contract 2>&1 | tee contract.log
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Append result to summary
+        if: always()
+        run: |
+          echo "### Contract check" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat contract.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # Surface drift where someone will see it. A red mark on a cron run
+      # is easy to miss; an issue is not.
+      - name: Open or update the drift issue
+        if: steps.contract.outputs.status != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(codex --version)
+          title="CLI drift detected against ${version}"
+          body=$(printf '`mix codex.contract` found flags this wrapper emits that the installed codex CLI no longer accepts.\n\nCLI version: `%s`\nRun: %s/%s/actions/runs/%s\n\n```\n%s\n```\n' \
+            "$version" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$(cat contract.log)")
+
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label cli-drift --state open --limit 1 --json number --jq '.[0].number')
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh label create cli-drift --repo "$GITHUB_REPOSITORY" \
+              --description "Wrapper emits flags the codex CLI no longer accepts" \
+              --color d73a4a 2>/dev/null || true
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$title" --label cli-drift --body "$body"
+          fi
+
+      - name: Fail the run when drift was found
+        if: steps.contract.outputs.status != '0'
+        run: exit 1
