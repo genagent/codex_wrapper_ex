@@ -28,7 +28,7 @@ defmodule CodexWrapper.Review do
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, JsonLineEvent, Result}
+  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Telemetry}
 
   @type t :: %__MODULE__{
           prompt: String.t() | nil,
@@ -146,7 +146,9 @@ defmodule CodexWrapper.Review do
   """
   @spec execute(t(), Config.t()) :: {:ok, Result.t()} | {:error, term()}
   def execute(%__MODULE__{} = review, %Config{} = config) do
-    Command.run(__MODULE__, review, config)
+    Telemetry.span([:codex_wrapper, :review], Telemetry.review_metadata(:review, review), fn ->
+      Command.run(__MODULE__, review, config)
+    end)
   end
 
   @doc """
@@ -174,42 +176,49 @@ defmodule CodexWrapper.Review do
   @spec stream(t(), Config.t()) :: Enumerable.t()
   def stream(%__MODULE__{} = review, %Config{} = config) do
     review = %{review | json: true}
-    args = Config.base_args(config) ++ args(review)
 
-    port_opts =
-      [:binary, :exit_status, {:line, 1_048_576}, {:args, args}] ++
-        port_env_opts(config) ++
-        port_cd_opts(config)
-
-    Stream.resource(
+    Telemetry.span(
+      [:codex_wrapper, :stream],
+      Telemetry.review_metadata(:review_stream, review),
       fn ->
-        Port.open({:spawn_executable, config.binary}, port_opts)
-      end,
-      fn port ->
-        receive do
-          {^port, {:data, {:eol, line}}} ->
-            case JsonLineEvent.parse(line) do
-              {:ok, event} -> {[event], port}
-              {:error, _} -> {[], port}
+        args = Config.base_args(config) ++ args(review)
+
+        port_opts =
+          [:binary, :exit_status, {:line, 1_048_576}, {:args, args}] ++
+            port_env_opts(config) ++
+            port_cd_opts(config)
+
+        Stream.resource(
+          fn ->
+            Port.open({:spawn_executable, config.binary}, port_opts)
+          end,
+          fn port ->
+            receive do
+              {^port, {:data, {:eol, line}}} ->
+                case JsonLineEvent.parse(line) do
+                  {:ok, event} -> {[event], port}
+                  {:error, _} -> {[], port}
+                end
+
+              {^port, {:data, {:noeol, _partial}}} ->
+                {[], port}
+
+              {^port, {:exit_status, _code}} ->
+                {:halt, port}
+            after
+              300_000 -> {:halt, port}
             end
+          end,
+          fn port ->
+            send(port, {self(), :close})
 
-          {^port, {:data, {:noeol, _partial}}} ->
-            {[], port}
-
-          {^port, {:exit_status, _code}} ->
-            {:halt, port}
-        after
-          300_000 -> {:halt, port}
-        end
-      end,
-      fn port ->
-        send(port, {self(), :close})
-
-        receive do
-          {^port, :closed} -> :ok
-        after
-          5_000 -> :ok
-        end
+            receive do
+              {^port, :closed} -> :ok
+            after
+              5_000 -> :ok
+            end
+          end
+        )
       end
     )
   end

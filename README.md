@@ -294,6 +294,63 @@ For subcommands not yet wrapped:
 CodexWrapper.raw(["some", "new", "subcommand"])
 ```
 
+## Telemetry
+
+CodexWrapper emits `:telemetry` span events around its core exec paths so
+host applications can observe durations and metadata without
+re-implementing instrumentation. The events use `:telemetry.span/3`, so
+each wrapped call produces a matched `:start`/`:stop` pair, or a
+`:start`/`:exception` pair if the call raises.
+
+### Events
+
+| Event                                             | Fired around                                                    |
+|---------------------------------------------------|-----------------------------------------------------------------|
+| `[:codex_wrapper, :exec, :start \| :stop \| :exception]`     | `CodexWrapper.Exec.execute/2`, `CodexWrapper.ExecResume.execute/2` |
+| `[:codex_wrapper, :stream, :start \| :stop \| :exception]`   | `CodexWrapper.Exec.stream/2`, `CodexWrapper.ExecResume.stream/2`, `CodexWrapper.Review.stream/2` |
+| `[:codex_wrapper, :review, :start \| :stop \| :exception]`   | `CodexWrapper.Review.execute/2`                                 |
+| `[:codex_wrapper, :session, :turn, :start \| :stop \| :exception]` | each `CodexWrapper.Session.send/3` turn (Exec or Resume) and `CodexWrapper.Commands.Fork.execute/2` |
+
+### Metadata
+
+Start metadata (all events):
+
+- `:command` -- atom identifying the command path (`:exec`,
+  `:exec_resume`, `:exec_stream`, `:exec_resume_stream`, `:review`,
+  `:review_stream`, `:session_exec`, `:session_resume`, `:session_fork`)
+- `:session_id` -- session identifier when present
+- `:sandbox_mode` -- sandbox mode atom (`:read_only`, `:workspace_write`,
+  `:danger_full_access`) or `nil`
+- `:approval_policy` -- approval policy atom (`:untrusted`, `:on_failure`,
+  `:on_request`, `:never`) or `nil`
+
+Stop metadata adds:
+
+- `:exit_code` -- non-negative integer from the subprocess (when the
+  call resolves to a `%CodexWrapper.Result{}`)
+
+Exception metadata adds `:kind`, `:reason`, and `:stacktrace` via
+`:telemetry.span/3`.
+
+### Attaching a handler
+
+```elixir
+:telemetry.attach_many(
+  "codex-wrapper-logger",
+  [
+    [:codex_wrapper, :exec, :stop],
+    [:codex_wrapper, :stream, :stop],
+    [:codex_wrapper, :review, :stop],
+    [:codex_wrapper, :session, :turn, :stop]
+  ],
+  fn event, measurements, metadata, _config ->
+    require Logger
+    Logger.info("#{inspect(event)} duration=#{measurements.duration} meta=#{inspect(metadata)}")
+  end,
+  nil
+)
+```
+
 ## Configuration
 
 ### Config options
@@ -376,6 +433,7 @@ built-in `Port`; forcola-backed streaming is a planned follow-up.
 | `CodexWrapper.SessionServer` | GenServer wrapper for sessions |
 | `CodexWrapper.Retry` | Exponential backoff retry |
 | `CodexWrapper.IEx` | Interactive REPL helpers |
+| `CodexWrapper.Telemetry` | `:telemetry` span wrappers for exec paths |
 | `CodexWrapper.Command` | Behaviour for CLI commands |
 | `CodexWrapper.Commands.Auth` | Authentication (login/logout/status) |
 | `CodexWrapper.Commands.Features` | Feature flag management |
