@@ -197,7 +197,9 @@ defmodule CodexWrapper.ExecTest do
         |> Exec.dangerously_bypass_approvals_and_sandbox()
         |> Exec.args()
 
-      assert "--full-auto" in args
+      refute "--full-auto" in args
+      assert "--sandbox" in args
+      assert "workspace-write" in args
       assert "--dangerously-bypass-approvals-and-sandbox" in args
     end
 
@@ -337,6 +339,27 @@ defmodule CodexWrapper.ExecTest do
       assert result.stdout == "error\n"
       assert result.exit_code == 1
       assert result.success == false
+    end
+  end
+
+  describe "full_auto translation" do
+    test "full_auto translates to --sandbox workspace-write" do
+      args = Exec.new("p") |> Exec.full_auto() |> Exec.args()
+      idx = Enum.find_index(args, &(&1 == "--sandbox"))
+      assert Enum.at(args, idx + 1) == "workspace-write"
+      refute "--full-auto" in args
+    end
+
+    test "an explicit sandbox wins over full_auto" do
+      args = Exec.new("p") |> Exec.full_auto() |> Exec.sandbox(:read_only) |> Exec.args()
+      idx = Enum.find_index(args, &(&1 == "--sandbox"))
+      assert Enum.at(args, idx + 1) == "read-only"
+      refute "workspace-write" in args
+    end
+
+    test "no --sandbox when neither is set" do
+      args = Exec.new("p") |> Exec.args()
+      refute "--sandbox" in args
     end
   end
 end

@@ -143,7 +143,8 @@ defmodule CodexWrapper.ExecResumeTest do
                "resume",
                "--model",
                "gpt-5",
-               "--full-auto",
+               "--sandbox",
+               "workspace-write",
                "--skip-git-repo-check",
                "--json",
                "abc-123",
@@ -184,7 +185,9 @@ defmodule CodexWrapper.ExecResumeTest do
         |> ExecResume.all()
         |> ExecResume.args()
 
-      assert "--full-auto" in args
+      refute "--full-auto" in args
+      assert "--sandbox" in args
+      assert "workspace-write" in args
       assert "--dangerously-bypass-approvals-and-sandbox" in args
       assert "--last" in args
       assert "--all" in args
@@ -216,6 +219,32 @@ defmodule CodexWrapper.ExecResumeTest do
       assert result.stdout == "error\n"
       assert result.exit_code == 1
       assert result.success == false
+    end
+  end
+
+  describe "full_auto translation" do
+    test "full_auto translates to --sandbox workspace-write" do
+      args = ExecResume.new() |> ExecResume.full_auto() |> ExecResume.args()
+      idx = Enum.find_index(args, &(&1 == "--sandbox"))
+      assert Enum.at(args, idx + 1) == "workspace-write"
+      refute "--full-auto" in args
+    end
+
+    test "an explicit sandbox wins over full_auto" do
+      args =
+        ExecResume.new()
+        |> ExecResume.full_auto()
+        |> ExecResume.sandbox(:read_only)
+        |> ExecResume.args()
+
+      idx = Enum.find_index(args, &(&1 == "--sandbox"))
+      assert Enum.at(args, idx + 1) == "read-only"
+      refute "workspace-write" in args
+    end
+
+    test "no --sandbox when neither is set" do
+      args = ExecResume.new() |> ExecResume.args()
+      refute "--sandbox" in args
     end
   end
 end

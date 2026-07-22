@@ -145,9 +145,14 @@ config = Config.new(working_dir: "/path/to/project")
 Review.new()
 |> Review.base("main")
 |> Review.model("o4-mini")
-|> Review.full_auto()
+|> Review.sandbox(:workspace_write)
 |> Review.execute(config)
 ```
+
+`full_auto/1` is still available on `Exec`, `ExecResume` and `Review`,
+but it is deprecated upstream: it now emits `--sandbox workspace-write`
+rather than the deprecated `--full-auto` flag. An explicit `sandbox/2`
+call wins over it.
 
 ## Session resumption
 

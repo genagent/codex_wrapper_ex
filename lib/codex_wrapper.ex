@@ -97,7 +97,7 @@ defmodule CodexWrapper do
     * `:model` - Model name
     * `:sandbox` - Sandbox mode atom
     * `:approval_policy` - Approval policy atom (`:untrusted`, `:on_request`, `:never`)
-    * `:full_auto` - Enable full-auto (boolean)
+    * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:cd` - Working directory for codex subprocess
     * `:skip_git_repo_check` - Skip git check (boolean)
@@ -178,7 +178,7 @@ defmodule CodexWrapper do
     * `:commit` - Review a specific commit
     * `:title` - PR/review title
     * `:model` - Model name
-    * `:full_auto` - Enable full-auto (boolean)
+    * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:skip_git_repo_check` - Skip git check (boolean)
     * `:ephemeral` - Ephemeral mode (boolean)

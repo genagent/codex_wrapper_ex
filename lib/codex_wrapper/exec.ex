@@ -112,7 +112,13 @@ defmodule CodexWrapper.Exec do
   def approval_policy(%__MODULE__{} = e, policy) when policy in [:untrusted, :on_request, :never],
     do: %{e | approval_policy: policy}
 
-  @doc "Enable full-auto mode."
+  @doc """
+  Enable full-auto mode.
+
+  Deprecated upstream. Emits `--sandbox workspace-write`, which is what
+  the Codex CLI now tells you to use in place of `--full-auto`. An
+  explicit `sandbox/2` call is more specific and wins over this.
+  """
   @spec full_auto(t()) :: t()
   def full_auto(%__MODULE__{} = e), do: %{e | full_auto: true}
 
@@ -276,8 +282,7 @@ defmodule CodexWrapper.Exec do
     |> add_list("--disable", e.disabled_features)
     |> add_list("--image", e.images)
     |> add_opt("--model", e.model)
-    |> add_opt("--sandbox", format_sandbox(e.sandbox))
-    |> add_bool("--full-auto", e.full_auto)
+    |> add_opt("--sandbox", format_sandbox(effective_sandbox(e)))
     |> add_bool(
       "--dangerously-bypass-approvals-and-sandbox",
       e.dangerously_bypass_approvals_and_sandbox
@@ -314,6 +319,12 @@ defmodule CodexWrapper.Exec do
   defp add_list(args, flag, values), do: args ++ Enum.flat_map(values, &[flag, &1])
 
   # --- Format helpers ---
+
+  # `--full-auto` is deprecated upstream ("use --sandbox workspace-write"),
+  # so translate it instead of emitting it. An explicit sandbox/2 call is
+  # the more specific instruction and wins.
+  defp effective_sandbox(%__MODULE__{sandbox: nil, full_auto: true}), do: :workspace_write
+  defp effective_sandbox(%__MODULE__{sandbox: mode}), do: mode
 
   defp format_sandbox(nil), do: nil
   defp format_sandbox(:read_only), do: "read-only"
