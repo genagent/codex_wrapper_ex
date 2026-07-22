@@ -49,7 +49,7 @@ defmodule CodexWrapper.Session do
 
     * `:model` - Model name
     * `:sandbox` - Sandbox mode
-    * `:approval_policy` - Approval policy
+    * `:approval_policy` - Approval policy (`:untrusted`, `:on_request`, `:never`)
     * `:full_auto` - Enable full-auto (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:skip_git_repo_check` - Skip git check (boolean)
