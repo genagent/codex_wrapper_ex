@@ -25,10 +25,20 @@ defmodule CodexWrapper.Command do
     all_args = CodexWrapper.Config.base_args(config) ++ mod.args(command)
     opts = CodexWrapper.Config.cmd_opts(config)
 
-    case CodexWrapper.Runner.impl().run(config.binary, all_args, opts, config.timeout) do
-      {:ok, {stdout, code}} -> mod.parse_output(stdout, code)
-      {:error, :timeout} -> {:error, {:timeout, config.timeout}}
-      {:error, reason} -> {:error, reason}
+    runner = CodexWrapper.Runner.impl()
+
+    case runner.run(config.binary, all_args, opts, config.timeout) do
+      {:ok, {stdout, code}} ->
+        mod.parse_output(stdout, code)
+
+      {:error, :timeout} ->
+        # Report the bound that actually elapsed, which is not always
+        # `config.timeout` -- Runner.Forcola substitutes a finite default
+        # when the caller set none.
+        {:error, {:timeout, CodexWrapper.Runner.effective_timeout(runner, config.timeout)}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
