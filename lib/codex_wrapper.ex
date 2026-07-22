@@ -96,7 +96,7 @@ defmodule CodexWrapper do
   Exec options (passed to `Exec` builder):
     * `:model` - Model name
     * `:sandbox` - Sandbox mode atom
-    * `:approval_policy` - Approval policy atom
+    * `:approval_policy` - Approval policy atom (`:untrusted`, `:on_request`, `:never`)
     * `:full_auto` - Enable full-auto (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:cd` - Working directory for codex subprocess

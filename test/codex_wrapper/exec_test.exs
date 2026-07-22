@@ -47,6 +47,12 @@ defmodule CodexWrapper.ExecTest do
       assert exec.approval_policy == :on_request
     end
 
+    test "approval_policy/2 rejects the removed :on_failure policy" do
+      assert_raise ArgumentError, ~r/no longer a valid approval policy/, fn ->
+        Exec.new("p") |> Exec.approval_policy(:on_failure)
+      end
+    end
+
     test "full_auto/1" do
       exec = Exec.new("p") |> Exec.full_auto()
       assert exec.full_auto == true
@@ -142,12 +148,12 @@ defmodule CodexWrapper.ExecTest do
 
       assert args == [
                "exec",
+               "-c",
+               ~s(approval_policy="on-request"),
                "--model",
                "gpt-5",
                "--sandbox",
                "workspace-write",
-               "--ask-for-approval",
-               "on-request",
                "--skip-git-repo-check",
                "--ephemeral",
                "--json",
@@ -258,14 +264,53 @@ defmodule CodexWrapper.ExecTest do
       assert Enum.at(args, idx + 1) == "danger-full-access"
     end
 
-    test "approval policies" do
-      args = Exec.new("p") |> Exec.approval_policy(:untrusted) |> Exec.args()
-      idx = Enum.find_index(args, &(&1 == "--ask-for-approval"))
-      assert Enum.at(args, idx + 1) == "untrusted"
+    test "approval policies emit the approval_policy config key" do
+      for {policy, value} <- [
+            {:untrusted, "untrusted"},
+            {:on_request, "on-request"},
+            {:never, "never"}
+          ] do
+        args = Exec.new("p") |> Exec.approval_policy(policy) |> Exec.args()
+        idx = Enum.find_index(args, &(&1 == "-c"))
+        assert Enum.at(args, idx + 1) == ~s(approval_policy="#{value}")
+      end
+    end
 
+    test "the removed --ask-for-approval flag is never emitted" do
       args = Exec.new("p") |> Exec.approval_policy(:never) |> Exec.args()
-      idx = Enum.find_index(args, &(&1 == "--ask-for-approval"))
-      assert Enum.at(args, idx + 1) == "never"
+      refute "--ask-for-approval" in args
+    end
+
+    test "no approval_policy override when unset" do
+      args = Exec.new("p") |> Exec.args()
+      refute "-c" in args
+      refute Enum.any?(args, &String.starts_with?(&1, "approval_policy="))
+    end
+
+    test "user config overrides precede the approval_policy override" do
+      args =
+        Exec.new("p")
+        |> Exec.config("model_reasoning_effort=\"high\"")
+        |> Exec.approval_policy(:never)
+        |> Exec.args()
+
+      assert args == [
+               "exec",
+               "-c",
+               ~s(model_reasoning_effort="high"),
+               "-c",
+               ~s(approval_policy="never"),
+               "p"
+             ]
+    end
+
+    test "an explicit approval_policy config override is left alone" do
+      args =
+        Exec.new("p")
+        |> Exec.config(~s(approval_policy="untrusted"))
+        |> Exec.args()
+
+      assert args == ["exec", "-c", ~s(approval_policy="untrusted"), "p"]
     end
 
     test "prompt is always last" do
