@@ -23,7 +23,7 @@ defmodule CodexWrapper.Exec do
   alias CodexWrapper.{Command, Config, JsonLineEvent, Result}
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
-  @type approval_policy :: :untrusted | :on_failure | :on_request | :never
+  @type approval_policy :: :untrusted | :on_request | :never
 
   @type t :: %__MODULE__{
           prompt: String.t(),
@@ -87,9 +87,29 @@ defmodule CodexWrapper.Exec do
   @spec sandbox(t(), sandbox_mode()) :: t()
   def sandbox(%__MODULE__{} = e, mode), do: %{e | sandbox: mode}
 
-  @doc "Set the approval policy."
+  @doc """
+  Set the approval policy.
+
+  One of `:untrusted`, `:on_request`, or `:never`. Emitted as the
+  `-c approval_policy="<value>"` config override: codex-cli 0.14x removed
+  the `--ask-for-approval` flag from `exec`, and the config key is the
+  supported equivalent.
+
+  `:on_failure` was accepted by the old flag and is no longer a valid
+  policy; passing it raises.
+  """
   @spec approval_policy(t(), approval_policy()) :: t()
-  def approval_policy(%__MODULE__{} = e, policy), do: %{e | approval_policy: policy}
+  def approval_policy(%__MODULE__{}, :on_failure) do
+    raise ArgumentError, """
+    :on_failure is no longer a valid approval policy.
+
+    The Codex CLI dropped it along with the --ask-for-approval flag.
+    Valid policies are :untrusted, :on_request, and :never.
+    """
+  end
+
+  def approval_policy(%__MODULE__{} = e, policy) when policy in [:untrusted, :on_request, :never],
+    do: %{e | approval_policy: policy}
 
   @doc "Enable full-auto mode."
   @spec full_auto(t()) :: t()
@@ -234,13 +254,12 @@ defmodule CodexWrapper.Exec do
   @impl Command
   def args(%__MODULE__{} = e) do
     ["exec"]
-    |> add_list("-c", e.config_overrides)
+    |> add_list("-c", config_overrides(e))
     |> add_list("--enable", e.enabled_features)
     |> add_list("--disable", e.disabled_features)
     |> add_list("--image", e.images)
     |> add_opt("--model", e.model)
     |> add_opt("--sandbox", format_sandbox(e.sandbox))
-    |> add_opt("--ask-for-approval", format_approval_policy(e.approval_policy))
     |> add_bool("--full-auto", e.full_auto)
     |> add_bool(
       "--dangerously-bypass-approvals-and-sandbox",
@@ -285,9 +304,18 @@ defmodule CodexWrapper.Exec do
   defp format_sandbox(:workspace_write), do: "workspace-write"
   defp format_sandbox(:danger_full_access), do: "danger-full-access"
 
-  defp format_approval_policy(nil), do: nil
+  # `--ask-for-approval` was removed from `codex exec` in 0.14x. The
+  # `approval_policy` config key is the supported equivalent, so the
+  # builder option is folded into the `-c` overrides rather than dropped.
+  # User-supplied overrides come first, so an explicit
+  # `config("approval_policy=...")` still wins on a last-wins CLI.
+  defp config_overrides(%__MODULE__{approval_policy: nil} = e), do: e.config_overrides
+
+  defp config_overrides(%__MODULE__{} = e) do
+    e.config_overrides ++ [~s(approval_policy="#{format_approval_policy(e.approval_policy)}")]
+  end
+
   defp format_approval_policy(:untrusted), do: "untrusted"
-  defp format_approval_policy(:on_failure), do: "on-failure"
   defp format_approval_policy(:on_request), do: "on-request"
   defp format_approval_policy(:never), do: "never"
 

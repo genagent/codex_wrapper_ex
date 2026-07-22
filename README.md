@@ -111,10 +111,16 @@ config = Config.new(working_dir: "/path/to/project")
 Exec.new("Fix the tests")
 |> Exec.model("o3")
 |> Exec.sandbox(:workspace_write)
-|> Exec.approval_policy(:on_failure)
+|> Exec.approval_policy(:never)
 |> Exec.search()
 |> Exec.execute(config)
 ```
+
+`approval_policy/2` takes `:untrusted`, `:on_request`, or `:never`, and
+emits `-c approval_policy="<value>"`. The Codex CLI removed the
+`--ask-for-approval` flag from `exec` in 0.14x; the config key is the
+supported equivalent. `:on_failure` was dropped along with the flag and
+now raises.
 
 ## Review builder
 
