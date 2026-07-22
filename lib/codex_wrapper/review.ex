@@ -30,6 +30,8 @@ defmodule CodexWrapper.Review do
 
   alias CodexWrapper.{Command, Config, JsonLineEvent, Result}
 
+  @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
+
   @type t :: %__MODULE__{
           prompt: String.t() | nil,
           uncommitted: boolean(),
@@ -37,6 +39,7 @@ defmodule CodexWrapper.Review do
           commit: String.t() | nil,
           title: String.t() | nil,
           model: String.t() | nil,
+          sandbox: sandbox_mode() | nil,
           full_auto: boolean(),
           dangerously_bypass_approvals_and_sandbox: boolean(),
           skip_git_repo_check: boolean(),
@@ -55,6 +58,7 @@ defmodule CodexWrapper.Review do
     :title,
     :model,
     :output_last_message,
+    :sandbox,
     uncommitted: false,
     full_auto: false,
     dangerously_bypass_approvals_and_sandbox: false,
@@ -100,7 +104,17 @@ defmodule CodexWrapper.Review do
   @spec model(t(), String.t()) :: t()
   def model(%__MODULE__{} = r, model), do: %{r | model: model}
 
-  @doc "Enable full-auto mode."
+  @doc "Set the sandbox mode."
+  @spec sandbox(t(), sandbox_mode()) :: t()
+  def sandbox(%__MODULE__{} = r, mode), do: %{r | sandbox: mode}
+
+  @doc """
+  Enable full-auto mode.
+
+  Deprecated upstream. Emits `--sandbox workspace-write`, which is what
+  the Codex CLI now tells you to use in place of `--full-auto`. An
+  explicit `sandbox/2` call is more specific and wins over this.
+  """
   @spec full_auto(t()) :: t()
   def full_auto(%__MODULE__{} = r), do: %{r | full_auto: true}
 
@@ -227,7 +241,7 @@ defmodule CodexWrapper.Review do
     |> add_opt("--commit", r.commit)
     |> add_opt("--model", r.model)
     |> add_opt("--title", r.title)
-    |> add_bool("--full-auto", r.full_auto)
+    |> add_opt("--sandbox", format_sandbox(effective_sandbox(r)))
     |> add_bool(
       "--dangerously-bypass-approvals-and-sandbox",
       r.dangerously_bypass_approvals_and_sandbox
@@ -268,4 +282,15 @@ defmodule CodexWrapper.Review do
 
   defp port_cd_opts(%Config{working_dir: nil}), do: []
   defp port_cd_opts(%Config{working_dir: dir}), do: [{:cd, String.to_charlist(dir)}]
+
+  # `--full-auto` is deprecated upstream ("use --sandbox workspace-write"),
+  # so translate it instead of emitting it. An explicit sandbox/2 call is
+  # the more specific instruction and wins.
+  defp effective_sandbox(%__MODULE__{sandbox: nil, full_auto: true}), do: :workspace_write
+  defp effective_sandbox(%__MODULE__{sandbox: mode}), do: mode
+
+  defp format_sandbox(nil), do: nil
+  defp format_sandbox(:read_only), do: "read-only"
+  defp format_sandbox(:workspace_write), do: "workspace-write"
+  defp format_sandbox(:danger_full_access), do: "danger-full-access"
 end

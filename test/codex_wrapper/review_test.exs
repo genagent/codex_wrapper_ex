@@ -182,7 +182,9 @@ defmodule CodexWrapper.ReviewTest do
         |> Review.ephemeral()
         |> Review.args()
 
-      assert "--full-auto" in args
+      refute "--full-auto" in args
+      assert "--sandbox" in args
+      assert "workspace-write" in args
       assert "--dangerously-bypass-approvals-and-sandbox" in args
       assert "--skip-git-repo-check" in args
       assert "--ephemeral" in args
@@ -232,6 +234,27 @@ defmodule CodexWrapper.ReviewTest do
       assert result.stdout == "error\n"
       assert result.exit_code == 1
       assert result.success == false
+    end
+  end
+
+  describe "full_auto translation" do
+    test "full_auto translates to --sandbox workspace-write" do
+      args = Review.new() |> Review.full_auto() |> Review.args()
+      idx = Enum.find_index(args, &(&1 == "--sandbox"))
+      assert Enum.at(args, idx + 1) == "workspace-write"
+      refute "--full-auto" in args
+    end
+
+    test "an explicit sandbox wins over full_auto" do
+      args = Review.new() |> Review.full_auto() |> Review.sandbox(:read_only) |> Review.args()
+      idx = Enum.find_index(args, &(&1 == "--sandbox"))
+      assert Enum.at(args, idx + 1) == "read-only"
+      refute "workspace-write" in args
+    end
+
+    test "no --sandbox when neither is set" do
+      args = Review.new() |> Review.args()
+      refute "--sandbox" in args
     end
   end
 end
