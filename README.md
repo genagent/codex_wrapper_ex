@@ -132,10 +132,10 @@ Review.new()
 
 ## Session resumption
 
-Resume a previous session or fork from one:
+Resume a previous session:
 
 ```elixir
-alias CodexWrapper.{Config, ExecResume, Commands.Fork}
+alias CodexWrapper.{Config, ExecResume}
 
 config = Config.new()
 
@@ -149,14 +149,19 @@ ExecResume.new()
 ExecResume.new()
 |> ExecResume.last()
 |> ExecResume.execute(config)
-
-# Fork a session into a new branch
-Fork.new()
-|> Fork.session_id("session-to-fork")
-|> Fork.prompt("Take a different approach")
-|> Fork.model("o3")
-|> Fork.execute(config)
 ```
+
+### Forking
+
+`CodexWrapper.Commands.Fork` was removed. `codex fork` is an interactive
+TUI command with no non-interactive path -- piping a prompt to it fails
+with `stdin is not a terminal` -- so it cannot be driven from a library.
+
+`ExecResume` is the closest available alternative, but it is **not** a
+fork: it resumes a session in place and adds to that session's history,
+where forking would branch a new session and leave the original
+untouched. There is currently no way to branch a session
+non-interactively.
 
 ## Retry with backoff
 
