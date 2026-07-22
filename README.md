@@ -116,6 +116,19 @@ Exec.new("Fix the tests")
 |> Exec.execute(config)
 ```
 
+`search/1` enables live web search and `search/2` selects a mode
+(`:cached`, `:indexed`, `:live`, `:disabled`):
+
+```elixir
+Exec.new("What changed in OTP 27?")
+|> Exec.search(:cached)
+|> Exec.execute(config)
+```
+
+Both emit `-c web_search="<mode>"`. The Codex CLI removed the `--search`
+flag from `exec` in 0.14x; the config key is the supported equivalent,
+and `:live` is what `--search` used to mean.
+
 ## Review builder
 
 ```elixir

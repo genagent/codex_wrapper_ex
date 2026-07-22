@@ -19,7 +19,7 @@ defmodule CodexWrapper.ExecTest do
       assert exec.cd == nil
       assert exec.skip_git_repo_check == false
       assert exec.add_dirs == []
-      assert exec.search == false
+      assert exec.search == nil
       assert exec.ephemeral == false
       assert exec.output_schema == nil
       assert exec.json == false
@@ -72,9 +72,14 @@ defmodule CodexWrapper.ExecTest do
       assert exec.add_dirs == ["/a", "/b"]
     end
 
-    test "search/1" do
+    test "search/1 defaults to live" do
       exec = Exec.new("p") |> Exec.search()
-      assert exec.search == true
+      assert exec.search == :live
+    end
+
+    test "search/2 sets the mode" do
+      assert (Exec.new("p") |> Exec.search(:cached)).search == :cached
+      assert (Exec.new("p") |> Exec.search(:disabled)).search == :disabled
     end
 
     test "ephemeral/1" do
@@ -184,12 +189,61 @@ defmodule CodexWrapper.ExecTest do
         Exec.new("prompt")
         |> Exec.full_auto()
         |> Exec.dangerously_bypass_approvals_and_sandbox()
-        |> Exec.search()
         |> Exec.args()
 
       assert "--full-auto" in args
       assert "--dangerously-bypass-approvals-and-sandbox" in args
-      assert "--search" in args
+    end
+
+    test "search/1 emits the web_search config key set to live" do
+      args = Exec.new("p") |> Exec.search() |> Exec.args()
+      assert args == ["exec", "-c", ~s(web_search="live"), "p"]
+    end
+
+    test "search/2 emits each web search mode" do
+      for {mode, value} <- [
+            {:cached, "cached"},
+            {:indexed, "indexed"},
+            {:live, "live"},
+            {:disabled, "disabled"}
+          ] do
+        args = Exec.new("p") |> Exec.search(mode) |> Exec.args()
+        idx = Enum.find_index(args, &(&1 == "-c"))
+        assert Enum.at(args, idx + 1) == ~s(web_search="#{value}")
+      end
+    end
+
+    test "the removed --search flag is never emitted" do
+      args = Exec.new("p") |> Exec.search() |> Exec.args()
+      refute "--search" in args
+    end
+
+    test "no web_search override when search is unset" do
+      args = Exec.new("p") |> Exec.args()
+      refute "-c" in args
+      refute Enum.any?(args, &String.starts_with?(&1, "web_search="))
+    end
+
+    test "user config overrides precede the web_search override" do
+      args =
+        Exec.new("p")
+        |> Exec.config(~s(model_reasoning_effort="high"))
+        |> Exec.search()
+        |> Exec.args()
+
+      assert args == [
+               "exec",
+               "-c",
+               ~s(model_reasoning_effort="high"),
+               "-c",
+               ~s(web_search="live"),
+               "p"
+             ]
+    end
+
+    test "an explicit web_search config override is left alone" do
+      args = Exec.new("p") |> Exec.config(~s(web_search="cached")) |> Exec.args()
+      assert args == ["exec", "-c", ~s(web_search="cached"), "p"]
     end
 
     test "sandbox modes" do

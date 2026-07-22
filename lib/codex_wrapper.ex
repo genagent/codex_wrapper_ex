@@ -101,7 +101,8 @@ defmodule CodexWrapper do
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:cd` - Working directory for codex subprocess
     * `:skip_git_repo_check` - Skip git check (boolean)
-    * `:search` - Enable web search (boolean)
+    * `:search` - Web search: `true` (live), `false`, or a mode atom
+      (`:cached`, `:indexed`, `:live`, `:disabled`)
     * `:ephemeral` - Ephemeral mode (boolean)
     * `:json` - JSON output (boolean)
     * `:output_schema` - Output schema path
@@ -307,6 +308,9 @@ defmodule CodexWrapper do
 
       {:search, false}, e ->
         e
+
+      {:search, mode}, e when is_atom(mode) ->
+        Exec.search(e, mode)
 
       {:ephemeral, true}, e ->
         Exec.ephemeral(e)
