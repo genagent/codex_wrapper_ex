@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.4.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.3.0...v0.4.0) (2026-07-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* the `%Exec{}` `:search` field is now a mode atom (`:cached`, `:indexed`, `:live`, `:disabled`) or nil, where it was a boolean defaulting to false. The emitted argument changes from `--search` to `-c web_search="<mode>"`. `Exec.search/1` is unchanged for callers and now means `web_search="live"`.
+* Exec.approval_policy/2 no longer accepts :on_failure, which the Codex CLI dropped along with the --ask-for-approval flag. Valid policies are :untrusted, :on_request and :never. The emitted argument changes from `--ask-for-approval <policy>` to `-c approval_policy="<policy>"`.
+* CodexWrapper.Commands.Fork is removed. `codex fork` is an interactive TUI command that cannot be driven non-interactively, so the module never worked against codex-cli 0.14x. Use CodexWrapper.ExecResume to continue a session in place; there is no non-interactive way to branch one.
+
+### Features
+
+* add forcola runner for leak-free one-shot codex execution ([#50](https://github.com/genagent/codex_wrapper_ex/issues/50)) ([732f2de](https://github.com/genagent/codex_wrapper_ex/commit/732f2defbdc44cb73c29fad0cfdb92d90abad0ff))
+* route one-shot execution through a Runner with optional forcola ([#49](https://github.com/genagent/codex_wrapper_ex/issues/49)) ([9a2fdd2](https://github.com/genagent/codex_wrapper_ex/commit/9a2fdd2c723573b4287646b10ac2df3b97e52c2f)), closes [#48](https://github.com/genagent/codex_wrapper_ex/issues/48)
+
+
+### Bug Fixes
+
+* emit approval_policy as a -c config key, not --ask-for-approval ([#69](https://github.com/genagent/codex_wrapper_ex/issues/69)) ([e8f5bf5](https://github.com/genagent/codex_wrapper_ex/commit/e8f5bf5682a198426d6de2dabcbf5f2f4535bfbd))
+* emit web search as a -c config key, not --search ([#70](https://github.com/genagent/codex_wrapper_ex/issues/70)) ([439a87d](https://github.com/genagent/codex_wrapper_ex/commit/439a87d18af24a4cecf7f0e53c75d86ac83af564))
+* remove Commands.Fork, codex fork is TUI-only ([#68](https://github.com/genagent/codex_wrapper_ex/issues/68)) ([7d0e1ef](https://github.com/genagent/codex_wrapper_ex/commit/7d0e1ef3fa1caceaa643b0e4b264edab40f61ead))
+* rewrite Commands.Sandbox for the flat codex sandbox CLI ([#67](https://github.com/genagent/codex_wrapper_ex/issues/67)) ([cdda80c](https://github.com/genagent/codex_wrapper_ex/commit/cdda80cbecdba49c5c74f9b71868dd5402f2552a)), closes [#56](https://github.com/genagent/codex_wrapper_ex/issues/56)
+* translate full_auto to --sandbox workspace-write ([#71](https://github.com/genagent/codex_wrapper_ex/issues/71)) ([a26bdec](https://github.com/genagent/codex_wrapper_ex/commit/a26bdec5d1cd7cd1407e439546e734fffab22252)), closes [#55](https://github.com/genagent/codex_wrapper_ex/issues/55)
+
 ## [0.3.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.2.3...v0.3.0) (2026-04-11)
 
 
