@@ -17,6 +17,7 @@ defmodule CodexWrapper.ReviewTest do
       assert review.skip_git_repo_check == false
       assert review.ephemeral == false
       assert review.json == false
+      assert review.output_schema == nil
       assert review.output_last_message == nil
       assert review.config_overrides == []
       assert review.enabled_features == []
@@ -78,6 +79,11 @@ defmodule CodexWrapper.ReviewTest do
     test "json/1" do
       review = Review.new() |> Review.json()
       assert review.json == true
+    end
+
+    test "output_schema/2" do
+      review = Review.new() |> Review.output_schema("/tmp/schema.json")
+      assert review.output_schema == "/tmp/schema.json"
     end
 
     test "output_last_message/2" do
@@ -188,6 +194,20 @@ defmodule CodexWrapper.ReviewTest do
       assert "--dangerously-bypass-approvals-and-sandbox" in args
       assert "--skip-git-repo-check" in args
       assert "--ephemeral" in args
+    end
+
+    test "output_schema flag" do
+      args =
+        Review.new()
+        |> Review.output_schema("/tmp/schema.json")
+        |> Review.args()
+
+      idx = Enum.find_index(args, &(&1 == "--output-schema"))
+      assert Enum.at(args, idx + 1) == "/tmp/schema.json"
+    end
+
+    test "output_schema is omitted when unset" do
+      refute "--output-schema" in Review.args(Review.new())
     end
 
     test "title flag" do
