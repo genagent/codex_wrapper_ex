@@ -182,6 +182,7 @@ defmodule CodexWrapper do
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:skip_git_repo_check` - Skip git check (boolean)
     * `:ephemeral` - Ephemeral mode (boolean)
+    * `:output_schema` - Output schema path
     * `:json` - JSON output (boolean)
     * `:output_last_message` - Output last message path
 
@@ -254,6 +255,9 @@ defmodule CodexWrapper do
 
       {:ephemeral, false}, r ->
         r
+
+      {:output_schema, v}, r ->
+        Review.output_schema(r, v)
 
       {:json, true}, r ->
         Review.json(r)

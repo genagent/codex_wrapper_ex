@@ -24,6 +24,12 @@ defmodule CodexWrapper.Review do
       CodexWrapper.Review.new()
       |> CodexWrapper.Review.commit("abc123")
       |> CodexWrapper.Review.execute(config)
+
+      # Ask for structured review output
+      CodexWrapper.Review.new()
+      |> CodexWrapper.Review.uncommitted()
+      |> CodexWrapper.Review.output_schema("/path/to/schema.json")
+      |> CodexWrapper.Review.execute(config)
   """
 
   @behaviour CodexWrapper.Command
@@ -44,6 +50,7 @@ defmodule CodexWrapper.Review do
           dangerously_bypass_approvals_and_sandbox: boolean(),
           skip_git_repo_check: boolean(),
           ephemeral: boolean(),
+          output_schema: String.t() | nil,
           json: boolean(),
           output_last_message: String.t() | nil,
           config_overrides: [String.t()],
@@ -57,6 +64,7 @@ defmodule CodexWrapper.Review do
     :commit,
     :title,
     :model,
+    :output_schema,
     :output_last_message,
     :sandbox,
     uncommitted: false,
@@ -130,6 +138,10 @@ defmodule CodexWrapper.Review do
   @doc "Enable ephemeral mode (no session persistence)."
   @spec ephemeral(t()) :: t()
   def ephemeral(%__MODULE__{} = r), do: %{r | ephemeral: true}
+
+  @doc "Set the output schema path."
+  @spec output_schema(t(), String.t()) :: t()
+  def output_schema(%__MODULE__{} = r, path), do: %{r | output_schema: path}
 
   @doc "Enable JSON output."
   @spec json(t()) :: t()
@@ -248,6 +260,7 @@ defmodule CodexWrapper.Review do
     )
     |> add_bool("--skip-git-repo-check", r.skip_git_repo_check)
     |> add_bool("--ephemeral", r.ephemeral)
+    |> add_opt("--output-schema", r.output_schema)
     |> add_bool("--json", r.json)
     |> add_opt("--output-last-message", r.output_last_message)
     |> add_prompt(r.prompt)
