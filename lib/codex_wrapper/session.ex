@@ -48,6 +48,7 @@ defmodule CodexWrapper.Session do
   Any option accepted by `CodexWrapper.exec/2` (exec-level options only):
 
     * `:model` - Model name
+    * `:profile` - Named config profile (`--profile`)
     * `:sandbox` - Sandbox mode
     * `:approval_policy` - Approval policy (`:untrusted`, `:on_request`, `:never`)
     * `:full_auto` - Enable full-auto (boolean)
@@ -191,6 +192,9 @@ defmodule CodexWrapper.Session do
       {:model, v}, e ->
         Exec.model(e, v)
 
+      {:profile, v}, e ->
+        Exec.profile(e, v)
+
       {:sandbox, v}, e ->
         Exec.sandbox(e, v)
 
@@ -225,6 +229,9 @@ defmodule CodexWrapper.Session do
     Enum.reduce(merged_opts, resume, fn
       {:model, v}, e ->
         ExecResume.model(e, v)
+
+      {:profile, v}, e ->
+        ExecResume.profile(e, v)
 
       {:full_auto, true}, e ->
         ExecResume.full_auto(e)

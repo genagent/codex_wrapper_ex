@@ -11,6 +11,7 @@ defmodule CodexWrapper.ExecResumeTest do
       assert exec.last == false
       assert exec.all == false
       assert exec.model == nil
+      assert exec.profile == nil
       assert exec.full_auto == false
       assert exec.dangerously_bypass_approvals_and_sandbox == false
       assert exec.skip_git_repo_check == false
@@ -48,6 +49,11 @@ defmodule CodexWrapper.ExecResumeTest do
     test "model/2" do
       exec = ExecResume.new() |> ExecResume.model("o3")
       assert exec.model == "o3"
+    end
+
+    test "profile/2" do
+      exec = ExecResume.new() |> ExecResume.profile("fast")
+      assert exec.profile == "fast"
     end
 
     test "full_auto/1" do
@@ -150,6 +156,22 @@ defmodule CodexWrapper.ExecResumeTest do
                "abc-123",
                "continue"
              ]
+    end
+
+    test "profile emits --profile after --model" do
+      args =
+        ExecResume.new()
+        |> ExecResume.model("o3")
+        |> ExecResume.profile("fast")
+        |> ExecResume.prompt("continue")
+        |> ExecResume.args()
+
+      assert args == ["exec", "resume", "--model", "o3", "--profile", "fast", "continue"]
+    end
+
+    test "profile is omitted when unset" do
+      args = ExecResume.new() |> ExecResume.model("o3") |> ExecResume.args()
+      refute "--profile" in args
     end
 
     test "config overrides come first" do

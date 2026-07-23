@@ -20,6 +20,12 @@ defmodule CodexWrapper.SessionTest do
       session = Session.new(config, model: "o3", full_auto: true)
       assert session.exec_opts == [model: "o3", full_auto: true]
     end
+
+    test "with a profile exec opt" do
+      config = Config.new()
+      session = Session.new(config, profile: "fast")
+      assert session.exec_opts == [profile: "fast"]
+    end
   end
 
   describe "resume/3" do

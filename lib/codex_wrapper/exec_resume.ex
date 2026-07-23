@@ -35,6 +35,7 @@ defmodule CodexWrapper.ExecResume do
           last: boolean(),
           all: boolean(),
           model: String.t() | nil,
+          profile: String.t() | nil,
           sandbox: sandbox_mode() | nil,
           full_auto: boolean(),
           dangerously_bypass_approvals_and_sandbox: boolean(),
@@ -52,6 +53,7 @@ defmodule CodexWrapper.ExecResume do
     :session_id,
     :prompt,
     :model,
+    :profile,
     :output_last_message,
     :sandbox,
     last: false,
@@ -96,6 +98,15 @@ defmodule CodexWrapper.ExecResume do
   @doc "Set the model."
   @spec model(t(), String.t()) :: t()
   def model(%__MODULE__{} = e, model), do: %{e | model: model}
+
+  @doc """
+  Select a named config profile.
+
+  Emits `--profile <name>`, which tells the Codex CLI to load the
+  `[profiles.<name>]` section of `config.toml`.
+  """
+  @spec profile(t(), String.t()) :: t()
+  def profile(%__MODULE__{} = e, name), do: %{e | profile: name}
 
   @doc "Set the sandbox mode."
   @spec sandbox(t(), sandbox_mode()) :: t()
@@ -237,6 +248,7 @@ defmodule CodexWrapper.ExecResume do
     |> add_bool("--all", e.all)
     |> add_list("--image", e.images)
     |> add_opt("--model", e.model)
+    |> add_opt("--profile", e.profile)
     |> add_opt("--sandbox", format_sandbox(effective_sandbox(e)))
     |> add_bool(
       "--dangerously-bypass-approvals-and-sandbox",

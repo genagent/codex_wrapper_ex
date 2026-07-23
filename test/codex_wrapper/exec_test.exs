@@ -12,6 +12,7 @@ defmodule CodexWrapper.ExecTest do
     test "defaults" do
       exec = Exec.new("prompt")
       assert exec.model == nil
+      assert exec.profile == nil
       assert exec.sandbox == nil
       assert exec.approval_policy == nil
       assert exec.full_auto == false
@@ -35,6 +36,11 @@ defmodule CodexWrapper.ExecTest do
     test "model/2" do
       exec = Exec.new("p") |> Exec.model("o3")
       assert exec.model == "o3"
+    end
+
+    test "profile/2" do
+      exec = Exec.new("p") |> Exec.profile("fast")
+      assert exec.profile == "fast"
     end
 
     test "sandbox/2" do
@@ -159,6 +165,21 @@ defmodule CodexWrapper.ExecTest do
                "--json",
                "fix the test"
              ]
+    end
+
+    test "profile emits --profile after --model" do
+      args =
+        Exec.new("prompt")
+        |> Exec.model("o3")
+        |> Exec.profile("fast")
+        |> Exec.args()
+
+      assert args == ["exec", "--model", "o3", "--profile", "fast", "prompt"]
+    end
+
+    test "profile is omitted when unset" do
+      args = Exec.new("prompt") |> Exec.model("o3") |> Exec.args()
+      refute "--profile" in args
     end
 
     test "config overrides come first" do
