@@ -95,6 +95,7 @@ defmodule CodexWrapper do
 
   Exec options (passed to `Exec` builder):
     * `:model` - Model name
+    * `:profile` - Named config profile (`--profile`)
     * `:sandbox` - Sandbox mode atom
     * `:approval_policy` - Approval policy atom (`:untrusted`, `:on_request`, `:never`)
     * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
@@ -178,6 +179,7 @@ defmodule CodexWrapper do
     * `:commit` - Review a specific commit
     * `:title` - PR/review title
     * `:model` - Model name
+    * `:profile` - Named config profile (`--profile`)
     * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:skip_git_repo_check` - Skip git check (boolean)
@@ -231,6 +233,9 @@ defmodule CodexWrapper do
       {:model, v}, r ->
         Review.model(r, v)
 
+      {:profile, v}, r ->
+        Review.profile(r, v)
+
       {:full_auto, true}, r ->
         Review.full_auto(r)
 
@@ -275,6 +280,9 @@ defmodule CodexWrapper do
     Enum.reduce(opts, exec, fn
       {:model, v}, e ->
         Exec.model(e, v)
+
+      {:profile, v}, e ->
+        Exec.profile(e, v)
 
       {:sandbox, v}, e ->
         Exec.sandbox(e, v)

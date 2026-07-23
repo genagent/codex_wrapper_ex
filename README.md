@@ -135,6 +135,19 @@ Both emit `-c web_search="<mode>"`. The Codex CLI removed the `--search`
 flag from `exec` in 0.14x; the config key is the supported equivalent,
 and `:live` is what `--search` used to mean.
 
+`profile/2` selects a named config profile, emitting `--profile <name>`.
+The CLI loads the matching `[profiles.<name>]` section of `config.toml`:
+
+```elixir
+Exec.new("Fix the tests")
+|> Exec.profile("fast")
+|> Exec.execute(config)
+```
+
+It is available on `Exec`, `ExecResume` and `Review`, and as a `:profile`
+option on `CodexWrapper.exec/2`, `CodexWrapper.review/1` and
+`CodexWrapper.Session.new/2`.
+
 ## Review builder
 
 ```elixir
@@ -404,6 +417,7 @@ The streaming paths (`Exec.stream/2` and friends) still use the built-in
 | Option | Type | Description |
 |---|---|---|
 | `:model` | `String.t()` | Model name (e.g., `"o3"`, `"o4-mini"`) |
+| `:profile` | `String.t()` | Named config profile (`--profile`) |
 | `:sandbox` | atom | `:read_only`, `:workspace_write`, or `:danger_full_access` |
 | `:approval_policy` | atom | `:untrusted`, `:on_failure`, `:on_request`, or `:never` |
 | `:full_auto` | `boolean()` | Enable full-auto mode |

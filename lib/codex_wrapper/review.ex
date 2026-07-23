@@ -39,6 +39,7 @@ defmodule CodexWrapper.Review do
           commit: String.t() | nil,
           title: String.t() | nil,
           model: String.t() | nil,
+          profile: String.t() | nil,
           sandbox: sandbox_mode() | nil,
           full_auto: boolean(),
           dangerously_bypass_approvals_and_sandbox: boolean(),
@@ -57,6 +58,7 @@ defmodule CodexWrapper.Review do
     :commit,
     :title,
     :model,
+    :profile,
     :output_last_message,
     :sandbox,
     uncommitted: false,
@@ -103,6 +105,15 @@ defmodule CodexWrapper.Review do
   @doc "Set the model."
   @spec model(t(), String.t()) :: t()
   def model(%__MODULE__{} = r, model), do: %{r | model: model}
+
+  @doc """
+  Select a named config profile.
+
+  Emits `--profile <name>`, which tells the Codex CLI to load the
+  `[profiles.<name>]` section of `config.toml`.
+  """
+  @spec profile(t(), String.t()) :: t()
+  def profile(%__MODULE__{} = r, name), do: %{r | profile: name}
 
   @doc "Set the sandbox mode."
   @spec sandbox(t(), sandbox_mode()) :: t()
@@ -240,6 +251,7 @@ defmodule CodexWrapper.Review do
     |> add_opt("--base", r.base)
     |> add_opt("--commit", r.commit)
     |> add_opt("--model", r.model)
+    |> add_opt("--profile", r.profile)
     |> add_opt("--title", r.title)
     |> add_opt("--sandbox", format_sandbox(effective_sandbox(r)))
     |> add_bool(
