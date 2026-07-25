@@ -273,6 +273,7 @@ alias CodexWrapper.Commands.Auth
 
 {:ok, _} = Auth.login(config)
 {:ok, _} = Auth.login(config, with_api_key: true)
+{:ok, _} = Auth.login(config, with_access_token: true)
 {:ok, _} = Auth.status(config)
 {:ok, _} = Auth.logout(config)
 ```
