@@ -314,6 +314,36 @@ Sandbox.new("pytest")
 Codex CLI dropped the platform subcommand and infers the platform from
 the host, so passing an atom now raises with a migration message.
 
+## Diagnostics
+
+`codex doctor` checks the local install, config, auth, and runtime health.
+It works as a preflight before a run:
+
+```elixir
+alias CodexWrapper.Commands.Doctor
+
+{:ok, report} = Doctor.new() |> Doctor.summary() |> Doctor.execute(config)
+```
+
+`execute/2` returns the human-readable report as a string. For the
+machine-readable form, `execute_json/2` forces `--json` and decodes it:
+
+```elixir
+{:ok, report} = Doctor.new() |> Doctor.execute_json(config)
+
+report["overallStatus"]
+#=> "warning"
+
+report["checks"]["auth.credentials"]["status"]
+#=> "ok"
+```
+
+`codex doctor` exits 0 even when checks report warnings or failures, so a
+successful call is not by itself a clean bill of health. Read
+`"overallStatus"` rather than relying on the exit code.
+
+Builders: `json/1`, `summary/1`, `all/1`, `no_color/1`, `ascii/1`.
+
 ## Shell completions
 
 ```elixir
@@ -442,6 +472,7 @@ The streaming paths (`Exec.stream/2` and friends) still use the built-in
 | `CodexWrapper.Commands.Fork` | Session forking |
 | `CodexWrapper.Commands.Apply` | Apply diffs from task IDs |
 | `CodexWrapper.Commands.Completion` | Shell completion script generation |
+| `CodexWrapper.Commands.Doctor` | Install, config, auth, and runtime diagnostics |
 | `CodexWrapper.Commands.Version` | CLI version |
 
 ## License
