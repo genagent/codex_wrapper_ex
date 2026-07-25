@@ -322,6 +322,41 @@ alias CodexWrapper.Commands.Completion
 {:ok, script} = Completion.generate(config, :zsh)
 ```
 
+## Session lifecycle
+
+`codex archive`, `codex unarchive`, and `codex delete` operate on a saved
+session, named by id (UUID) or session name.
+
+```elixir
+alias CodexWrapper.Commands.Archive
+
+{:ok, _} = Archive.archive(config, "abc-123")
+{:ok, _} = Archive.unarchive(config, "abc-123")
+```
+
+`delete` permanently destroys the session, and `unarchive` cannot bring
+it back. So it requires an explicit confirmation; without it the CLI is
+never invoked.
+
+```elixir
+Archive.delete(config, "abc-123")
+# => {:error, :confirmation_required}
+
+Archive.delete(config, "abc-123", confirm: true)
+# => {:ok, ""}
+```
+
+The same three are available on a `%Session{}`, using its session id:
+
+```elixir
+{:ok, _} = CodexWrapper.Session.archive(session)
+{:ok, _} = CodexWrapper.Session.unarchive(session)
+{:ok, _} = CodexWrapper.Session.delete(session, confirm: true)
+```
+
+They return `{:error, :no_session}` if no turn has run yet, since the
+session id only exists once the CLI has created it.
+
 ## Applying diffs
 
 ```elixir
@@ -441,6 +476,7 @@ The streaming paths (`Exec.stream/2` and friends) still use the built-in
 | `CodexWrapper.Commands.Sandbox` | Sandboxed command execution |
 | `CodexWrapper.Commands.Fork` | Session forking |
 | `CodexWrapper.Commands.Apply` | Apply diffs from task IDs |
+| `CodexWrapper.Commands.Archive` | Archive, unarchive, and delete saved sessions |
 | `CodexWrapper.Commands.Completion` | Shell completion script generation |
 | `CodexWrapper.Commands.Version` | CLI version |
 
