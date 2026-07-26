@@ -21,6 +21,10 @@ defmodule CodexWrapper.ExecResumeTest do
       assert exec.config_overrides == []
       assert exec.enabled_features == []
       assert exec.disabled_features == []
+      assert exec.strict_config == false
+      assert exec.ignore_user_config == false
+      assert exec.ignore_rules == false
+      assert exec.dangerously_bypass_hook_trust == false
     end
   end
 
@@ -245,6 +249,56 @@ defmodule CodexWrapper.ExecResumeTest do
     test "no --sandbox when neither is set" do
       args = ExecResume.new() |> ExecResume.args()
       refute "--sandbox" in args
+    end
+  end
+
+  describe "config and trust flags" do
+    test "strict_config/1" do
+      exec = ExecResume.new() |> ExecResume.strict_config()
+      assert exec.strict_config == true
+      assert "--strict-config" in ExecResume.args(exec)
+    end
+
+    test "ignore_user_config/1" do
+      exec = ExecResume.new() |> ExecResume.ignore_user_config()
+      assert exec.ignore_user_config == true
+      assert "--ignore-user-config" in ExecResume.args(exec)
+    end
+
+    test "ignore_rules/1" do
+      exec = ExecResume.new() |> ExecResume.ignore_rules()
+      assert exec.ignore_rules == true
+      assert "--ignore-rules" in ExecResume.args(exec)
+    end
+
+    test "dangerously_bypass_hook_trust/1" do
+      exec = ExecResume.new() |> ExecResume.dangerously_bypass_hook_trust()
+      assert exec.dangerously_bypass_hook_trust == true
+      assert "--dangerously-bypass-hook-trust" in ExecResume.args(exec)
+    end
+
+    test "flags precede the positional session id and prompt" do
+      args =
+        ExecResume.new()
+        |> ExecResume.session_id("abc-123")
+        |> ExecResume.prompt("continue")
+        |> ExecResume.strict_config()
+        |> ExecResume.ignore_user_config()
+        |> ExecResume.args()
+
+      assert List.last(args) == "continue"
+      assert Enum.at(args, -2) == "abc-123"
+      assert Enum.find_index(args, &(&1 == "--strict-config")) < length(args) - 2
+      assert Enum.find_index(args, &(&1 == "--ignore-user-config")) < length(args) - 2
+    end
+
+    test "none of the flags are emitted when unset" do
+      args = ExecResume.new() |> ExecResume.args()
+
+      refute "--strict-config" in args
+      refute "--ignore-user-config" in args
+      refute "--ignore-rules" in args
+      refute "--dangerously-bypass-hook-trust" in args
     end
   end
 end

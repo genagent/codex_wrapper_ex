@@ -42,13 +42,17 @@ defmodule CodexWrapper.Review do
           sandbox: sandbox_mode() | nil,
           full_auto: boolean(),
           dangerously_bypass_approvals_and_sandbox: boolean(),
+          dangerously_bypass_hook_trust: boolean(),
           skip_git_repo_check: boolean(),
           ephemeral: boolean(),
           json: boolean(),
           output_last_message: String.t() | nil,
           config_overrides: [String.t()],
           enabled_features: [String.t()],
-          disabled_features: [String.t()]
+          disabled_features: [String.t()],
+          strict_config: boolean(),
+          ignore_user_config: boolean(),
+          ignore_rules: boolean()
         }
 
   defstruct [
@@ -62,12 +66,16 @@ defmodule CodexWrapper.Review do
     uncommitted: false,
     full_auto: false,
     dangerously_bypass_approvals_and_sandbox: false,
+    dangerously_bypass_hook_trust: false,
     skip_git_repo_check: false,
     ephemeral: false,
     json: false,
     config_overrides: [],
     enabled_features: [],
-    disabled_features: []
+    disabled_features: [],
+    strict_config: false,
+    ignore_user_config: false,
+    ignore_rules: false
   ]
 
   # --- Constructor ---
@@ -122,6 +130,40 @@ defmodule CodexWrapper.Review do
   @spec dangerously_bypass_approvals_and_sandbox(t()) :: t()
   def dangerously_bypass_approvals_and_sandbox(%__MODULE__{} = r),
     do: %{r | dangerously_bypass_approvals_and_sandbox: true}
+
+  @doc """
+  Run enabled hooks without requiring persisted hook trust. Use with extreme caution.
+
+  Hook trust is what stops a repository from running arbitrary commands
+  the user never approved. Only appropriate for automation that already
+  vets where its hooks come from.
+  """
+  @spec dangerously_bypass_hook_trust(t()) :: t()
+  def dangerously_bypass_hook_trust(%__MODULE__{} = r),
+    do: %{r | dangerously_bypass_hook_trust: true}
+
+  @doc """
+  Error out when `config.toml` contains fields this Codex version does not recognize.
+
+  Turns a silently-ignored typo in a config file into a failed run, which
+  is usually what a programmatic caller wants.
+  """
+  @spec strict_config(t()) :: t()
+  def strict_config(%__MODULE__{} = r), do: %{r | strict_config: true}
+
+  @doc """
+  Do not load `$CODEX_HOME/config.toml`.
+
+  Auth still resolves through `CODEX_HOME`; only the config file is
+  skipped. Pair with `config/2` overrides for a run that does not pick up
+  the developer's personal settings.
+  """
+  @spec ignore_user_config(t()) :: t()
+  def ignore_user_config(%__MODULE__{} = r), do: %{r | ignore_user_config: true}
+
+  @doc "Do not load user or project execpolicy `.rules` files."
+  @spec ignore_rules(t()) :: t()
+  def ignore_rules(%__MODULE__{} = r), do: %{r | ignore_rules: true}
 
   @doc "Skip the git repo check."
   @spec skip_git_repo_check(t()) :: t()
@@ -239,6 +281,7 @@ defmodule CodexWrapper.Review do
     |> add_bool("--uncommitted", r.uncommitted)
     |> add_opt("--base", r.base)
     |> add_opt("--commit", r.commit)
+    |> add_bool("--strict-config", r.strict_config)
     |> add_opt("--model", r.model)
     |> add_opt("--title", r.title)
     |> add_opt("--sandbox", format_sandbox(effective_sandbox(r)))
@@ -246,8 +289,11 @@ defmodule CodexWrapper.Review do
       "--dangerously-bypass-approvals-and-sandbox",
       r.dangerously_bypass_approvals_and_sandbox
     )
+    |> add_bool("--dangerously-bypass-hook-trust", r.dangerously_bypass_hook_trust)
     |> add_bool("--skip-git-repo-check", r.skip_git_repo_check)
     |> add_bool("--ephemeral", r.ephemeral)
+    |> add_bool("--ignore-user-config", r.ignore_user_config)
+    |> add_bool("--ignore-rules", r.ignore_rules)
     |> add_bool("--json", r.json)
     |> add_opt("--output-last-message", r.output_last_message)
     |> add_prompt(r.prompt)

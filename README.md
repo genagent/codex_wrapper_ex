@@ -135,6 +135,46 @@ Both emit `-c web_search="<mode>"`. The Codex CLI removed the `--search`
 flag from `exec` in 0.14x; the config key is the supported equivalent,
 and `:live` is what `--search` used to mean.
 
+### Config isolation
+
+By default the CLI loads `$CODEX_HOME/config.toml`, so a programmatic run
+silently inherits whatever the developer has configured. Two options take
+that away:
+
+```elixir
+Exec.new("Summarize the diff")
+|> Exec.ignore_user_config()
+|> Exec.strict_config()
+|> Exec.config(~s(model="o3"))
+|> Exec.execute(config)
+```
+
+`ignore_user_config/1` skips the config file entirely (auth still
+resolves through `CODEX_HOME`). `strict_config/1` makes the run fail on a
+config key this Codex version does not recognize, rather than ignoring
+it. Together they give a run whose configuration is exactly what the
+caller passed.
+
+`ignore_rules/1` is the same idea for execpolicy `.rules` files.
+
+All three are available on `Exec`, `ExecResume`, and `Review`.
+
+### Hook trust
+
+`dangerously_bypass_hook_trust/1` runs enabled hooks without requiring
+persisted hook trust. Hook trust is what stops a repository from running
+commands the user never approved, so this belongs only in automation that
+already vets where its hooks come from. It is separate from
+`dangerously_bypass_approvals_and_sandbox/1`; setting one does not set the
+other. Available on `Exec`, `ExecResume`, and `Review`.
+
+### Color and local providers
+
+`color/2` (`:always`, `:never`, `:auto`), `oss/1`, and `local_provider/2`
+(`"lmstudio"` or `"ollama"`) are on `Exec` only. `codex exec resume` and
+`codex exec review` reject `--color`, `--oss`, and `--local-provider`,
+verified against codex-cli 0.145.0.
+
 ## Review builder
 
 ```elixir
@@ -414,6 +454,13 @@ The streaming paths (`Exec.stream/2` and friends) still use the built-in
 | `:json` | `boolean()` | Enable JSON (NDJSON) output |
 | `:output_schema` | `String.t()` | Path to output schema file |
 | `:output_last_message` | `String.t()` | Path to save last message |
+| `:strict_config` | `boolean()` | Fail on unrecognized `config.toml` keys |
+| `:ignore_user_config` | `boolean()` | Skip `$CODEX_HOME/config.toml` |
+| `:ignore_rules` | `boolean()` | Skip execpolicy `.rules` files |
+| `:dangerously_bypass_hook_trust` | `boolean()` | Run hooks without persisted trust |
+| `:color` | atom | `:always`, `:never`, or `:auto` (Exec only) |
+| `:oss` | `boolean()` | Use an open-source provider (Exec only) |
+| `:local_provider` | `String.t()` | `"lmstudio"` or `"ollama"` (Exec only) |
 
 ## Modules
 
