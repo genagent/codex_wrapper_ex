@@ -144,9 +144,11 @@ Exec.new("Fix the tests")
 |> Exec.execute(config)
 ```
 
-It is available on `Exec`, `ExecResume` and `Review`, and as a `:profile`
-option on `CodexWrapper.exec/2`, `CodexWrapper.review/1` and
-`CodexWrapper.Session.new/2`.
+It is available on `Exec` only, and as a `:profile` option on
+`CodexWrapper.exec/2` and `CodexWrapper.Session.new/2`. The Codex CLI
+accepts `--profile` on `codex exec` but rejects it on `codex exec resume`
+and `codex exec review`, so `ExecResume` and `Review` have no `profile/2`,
+and a session's `:profile` applies to its first turn only.
 
 ## Review builder
 

@@ -179,7 +179,6 @@ defmodule CodexWrapper do
     * `:commit` - Review a specific commit
     * `:title` - PR/review title
     * `:model` - Model name
-    * `:profile` - Named config profile (`--profile`)
     * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:skip_git_repo_check` - Skip git check (boolean)
@@ -232,9 +231,6 @@ defmodule CodexWrapper do
 
       {:model, v}, r ->
         Review.model(r, v)
-
-      {:profile, v}, r ->
-        Review.profile(r, v)
 
       {:full_auto, true}, r ->
         Review.full_auto(r)

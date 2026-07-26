@@ -12,7 +12,6 @@ defmodule CodexWrapper.ReviewTest do
       assert review.commit == nil
       assert review.title == nil
       assert review.model == nil
-      assert review.profile == nil
       assert review.full_auto == false
       assert review.dangerously_bypass_approvals_and_sandbox == false
       assert review.skip_git_repo_check == false
@@ -54,11 +53,6 @@ defmodule CodexWrapper.ReviewTest do
     test "model/2" do
       review = Review.new() |> Review.model("o3")
       assert review.model == "o3"
-    end
-
-    test "profile/2" do
-      review = Review.new() |> Review.profile("fast")
-      assert review.profile == "fast"
     end
 
     test "full_auto/1" do
@@ -143,19 +137,8 @@ defmodule CodexWrapper.ReviewTest do
       assert args == ["exec", "review", "--base", "main", "--model", "o3"]
     end
 
-    test "profile emits --profile between --model and --title" do
-      args =
-        Review.new()
-        |> Review.model("o3")
-        |> Review.profile("fast")
-        |> Review.title("PR 1")
-        |> Review.args()
-
-      assert args == ["exec", "review", "--model", "o3", "--profile", "fast", "--title", "PR 1"]
-    end
-
-    test "profile is omitted when unset" do
-      args = Review.new() |> Review.model("o3") |> Review.args()
+    test "never emits --profile, which codex exec review rejects" do
+      args = Review.new() |> Review.model("o3") |> Review.title("PR 1") |> Review.args()
       refute "--profile" in args
     end
 
