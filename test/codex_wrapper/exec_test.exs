@@ -28,6 +28,13 @@ defmodule CodexWrapper.ExecTest do
       assert exec.config_overrides == []
       assert exec.enabled_features == []
       assert exec.disabled_features == []
+      assert exec.strict_config == false
+      assert exec.ignore_user_config == false
+      assert exec.ignore_rules == false
+      assert exec.dangerously_bypass_hook_trust == false
+      assert exec.color == nil
+      assert exec.oss == false
+      assert exec.local_provider == nil
     end
   end
 
@@ -360,6 +367,97 @@ defmodule CodexWrapper.ExecTest do
     test "no --sandbox when neither is set" do
       args = Exec.new("p") |> Exec.args()
       refute "--sandbox" in args
+    end
+  end
+
+  describe "config and trust flags" do
+    test "strict_config/1" do
+      exec = Exec.new("p") |> Exec.strict_config()
+      assert exec.strict_config == true
+      assert "--strict-config" in Exec.args(exec)
+    end
+
+    test "ignore_user_config/1" do
+      exec = Exec.new("p") |> Exec.ignore_user_config()
+      assert exec.ignore_user_config == true
+      assert "--ignore-user-config" in Exec.args(exec)
+    end
+
+    test "ignore_rules/1" do
+      exec = Exec.new("p") |> Exec.ignore_rules()
+      assert exec.ignore_rules == true
+      assert "--ignore-rules" in Exec.args(exec)
+    end
+
+    test "dangerously_bypass_hook_trust/1" do
+      exec = Exec.new("p") |> Exec.dangerously_bypass_hook_trust()
+      assert exec.dangerously_bypass_hook_trust == true
+      assert "--dangerously-bypass-hook-trust" in Exec.args(exec)
+    end
+
+    test "the config-isolation pair composes" do
+      args =
+        Exec.new("p")
+        |> Exec.ignore_user_config()
+        |> Exec.strict_config()
+        |> Exec.config(~s(model="o3"))
+        |> Exec.args()
+
+      assert "--ignore-user-config" in args
+      assert "--strict-config" in args
+      assert ~s(model="o3") in args
+    end
+
+    test "none of the flags are emitted when unset" do
+      args = Exec.new("p") |> Exec.args()
+
+      refute "--strict-config" in args
+      refute "--ignore-user-config" in args
+      refute "--ignore-rules" in args
+      refute "--dangerously-bypass-hook-trust" in args
+    end
+
+    test "hook trust is independent of the approvals-and-sandbox bypass" do
+      args = Exec.new("p") |> Exec.dangerously_bypass_hook_trust() |> Exec.args()
+
+      assert "--dangerously-bypass-hook-trust" in args
+      refute "--dangerously-bypass-approvals-and-sandbox" in args
+    end
+  end
+
+  describe "color and provider options" do
+    test "color/2 accepts each mode" do
+      for {mode, flag} <- [always: "always", never: "never", auto: "auto"] do
+        args = Exec.new("p") |> Exec.color(mode) |> Exec.args()
+        idx = Enum.find_index(args, &(&1 == "--color"))
+        assert Enum.at(args, idx + 1) == flag
+      end
+    end
+
+    test "color/2 rejects an unknown mode" do
+      assert_raise FunctionClauseError, fn ->
+        Exec.new("p") |> Exec.color(:sometimes)
+      end
+    end
+
+    test "oss/1" do
+      exec = Exec.new("p") |> Exec.oss()
+      assert exec.oss == true
+      assert "--oss" in Exec.args(exec)
+    end
+
+    test "local_provider/2" do
+      args = Exec.new("p") |> Exec.oss() |> Exec.local_provider("ollama") |> Exec.args()
+      idx = Enum.find_index(args, &(&1 == "--local-provider"))
+      assert Enum.at(args, idx + 1) == "ollama"
+    end
+
+    test "neither is emitted when unset" do
+      args = Exec.new("p") |> Exec.args()
+
+      refute "--color" in args
+      refute "--oss" in args
+      refute "--local-provider" in args
     end
   end
 end

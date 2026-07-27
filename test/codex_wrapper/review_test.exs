@@ -21,6 +21,10 @@ defmodule CodexWrapper.ReviewTest do
       assert review.config_overrides == []
       assert review.enabled_features == []
       assert review.disabled_features == []
+      assert review.strict_config == false
+      assert review.ignore_user_config == false
+      assert review.ignore_rules == false
+      assert review.dangerously_bypass_hook_trust == false
     end
   end
 
@@ -289,6 +293,54 @@ defmodule CodexWrapper.ReviewTest do
       user_idx = Enum.find_index(args, &(&1 == ~s(sandbox_mode="danger-full-access")))
       derived_idx = Enum.find_index(args, &(&1 == ~s(sandbox_mode="read-only")))
       assert user_idx < derived_idx
+    end
+  end
+
+  describe "config and trust flags" do
+    test "strict_config/1" do
+      review = Review.new() |> Review.strict_config()
+      assert review.strict_config == true
+      assert "--strict-config" in Review.args(review)
+    end
+
+    test "ignore_user_config/1" do
+      review = Review.new() |> Review.ignore_user_config()
+      assert review.ignore_user_config == true
+      assert "--ignore-user-config" in Review.args(review)
+    end
+
+    test "ignore_rules/1" do
+      review = Review.new() |> Review.ignore_rules()
+      assert review.ignore_rules == true
+      assert "--ignore-rules" in Review.args(review)
+    end
+
+    test "dangerously_bypass_hook_trust/1" do
+      review = Review.new() |> Review.dangerously_bypass_hook_trust()
+      assert review.dangerously_bypass_hook_trust == true
+      assert "--dangerously-bypass-hook-trust" in Review.args(review)
+    end
+
+    test "flags precede the positional prompt" do
+      args =
+        Review.new()
+        |> Review.prompt("focus on correctness")
+        |> Review.strict_config()
+        |> Review.ignore_rules()
+        |> Review.args()
+
+      assert List.last(args) == "focus on correctness"
+      assert "--strict-config" in args
+      assert "--ignore-rules" in args
+    end
+
+    test "none of the flags are emitted when unset" do
+      args = Review.new() |> Review.args()
+
+      refute "--strict-config" in args
+      refute "--ignore-user-config" in args
+      refute "--ignore-rules" in args
+      refute "--dangerously-bypass-hook-trust" in args
     end
   end
 end
