@@ -150,9 +150,16 @@ Review.new()
 ```
 
 `full_auto/1` is still available on `Exec`, `ExecResume` and `Review`,
-but it is deprecated upstream: it now emits `--sandbox workspace-write`
-rather than the deprecated `--full-auto` flag. An explicit `sandbox/2`
-call wins over it.
+but it is deprecated upstream: it now selects the `workspace-write`
+sandbox rather than emitting the deprecated `--full-auto` flag. An
+explicit `sandbox/2` call wins over it.
+
+`sandbox/2` works on all three builders but emits different arguments.
+`codex exec` takes `--sandbox <mode>`; `codex exec resume` and `codex
+exec review` reject that flag with `unexpected argument`, so on
+`ExecResume` and `Review` the builder emits the equivalent config
+override `-c sandbox_mode="<mode>"` instead. The public API and the
+three accepted modes are the same either way.
 
 ## Session resumption
 

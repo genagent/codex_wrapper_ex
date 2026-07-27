@@ -104,16 +104,24 @@ defmodule CodexWrapper.Review do
   @spec model(t(), String.t()) :: t()
   def model(%__MODULE__{} = r, model), do: %{r | model: model}
 
-  @doc "Set the sandbox mode."
+  @doc """
+  Set the sandbox mode.
+
+  Emits `-c sandbox_mode="<mode>"` rather than `--sandbox <mode>`: the
+  flag is accepted by `codex exec` only, and `codex exec review` rejects
+  it with `unexpected argument`. The config key is the supported
+  equivalent and takes the same three values.
+  """
   @spec sandbox(t(), sandbox_mode()) :: t()
   def sandbox(%__MODULE__{} = r, mode), do: %{r | sandbox: mode}
 
   @doc """
   Enable full-auto mode.
 
-  Deprecated upstream. Emits `--sandbox workspace-write`, which is what
-  the Codex CLI now tells you to use in place of `--full-auto`. An
-  explicit `sandbox/2` call is more specific and wins over this.
+  Deprecated upstream. Emits `-c sandbox_mode="workspace-write"`, the
+  config-key form of what the Codex CLI now tells you to use in place of
+  `--full-auto`. An explicit `sandbox/2` call is more specific and wins
+  over this.
   """
   @spec full_auto(t()) :: t()
   def full_auto(%__MODULE__{} = r), do: %{r | full_auto: true}
@@ -233,7 +241,7 @@ defmodule CodexWrapper.Review do
   @impl Command
   def args(%__MODULE__{} = r) do
     ["exec", "review"]
-    |> add_list("-c", r.config_overrides)
+    |> add_list("-c", config_overrides(r))
     |> add_list("--enable", r.enabled_features)
     |> add_list("--disable", r.disabled_features)
     |> add_bool("--uncommitted", r.uncommitted)
@@ -241,7 +249,6 @@ defmodule CodexWrapper.Review do
     |> add_opt("--commit", r.commit)
     |> add_opt("--model", r.model)
     |> add_opt("--title", r.title)
-    |> add_opt("--sandbox", format_sandbox(effective_sandbox(r)))
     |> add_bool(
       "--dangerously-bypass-approvals-and-sandbox",
       r.dangerously_bypass_approvals_and_sandbox
@@ -282,6 +289,22 @@ defmodule CodexWrapper.Review do
 
   defp port_cd_opts(%Config{working_dir: nil}), do: []
   defp port_cd_opts(%Config{working_dir: dir}), do: [{:cd, String.to_charlist(dir)}]
+
+  # `--sandbox` is an `exec`-only flag: `exec review` rejects it outright.
+  # `sandbox_mode` is the config key the subcommand does accept, so the
+  # builder option folds into the `-c` overrides rather than dropping.
+  # User-supplied overrides come first, so an explicit `sandbox/2` call
+  # wins on a last-wins CLI.
+  defp config_overrides(%__MODULE__{} = r) do
+    r.config_overrides ++ sandbox_override(r)
+  end
+
+  defp sandbox_override(%__MODULE__{} = r) do
+    case format_sandbox(effective_sandbox(r)) do
+      nil -> []
+      mode -> [~s(sandbox_mode="#{mode}")]
+    end
+  end
 
   # `--full-auto` is deprecated upstream ("use --sandbox workspace-write"),
   # so translate it instead of emitting it. An explicit sandbox/2 call is
