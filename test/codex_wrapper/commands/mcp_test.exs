@@ -95,6 +95,42 @@ defmodule CodexWrapper.Commands.McpTest do
     end
   end
 
+  describe "add/4 oauth options" do
+    test "builds http add args with oauth client id and resource" do
+      config = Config.new(binary: "echo")
+
+      assert {:ok, output} =
+               Mcp.add(config, "srv", :http,
+                 url: "https://example.com/mcp",
+                 oauth_client_id: "codex-cli",
+                 oauth_resource: "https://example.com"
+               )
+
+      assert output =~ "--oauth-client-id codex-cli"
+      assert output =~ "--oauth-resource https://example.com"
+    end
+
+    test "builds stdio add args with oauth options before the command separator" do
+      config = Config.new(binary: "echo")
+
+      assert {:ok, output} =
+               Mcp.add(config, "srv", :stdio,
+                 command: "npx",
+                 oauth_client_id: "codex-cli"
+               )
+
+      assert output =~ "--oauth-client-id codex-cli -- npx"
+    end
+
+    test "omits oauth flags when unset" do
+      config = Config.new(binary: "echo")
+
+      assert {:ok, output} = Mcp.add(config, "srv", :http, url: "https://example.com/mcp")
+      refute output =~ "--oauth-client-id"
+      refute output =~ "--oauth-resource"
+    end
+  end
+
   describe "remove/2" do
     test "builds remove args" do
       config = Config.new(binary: "echo")
@@ -102,6 +138,35 @@ defmodule CodexWrapper.Commands.McpTest do
       assert output =~ "mcp"
       assert output =~ "remove"
       assert output =~ "my-server"
+    end
+  end
+
+  describe "login/3" do
+    test "builds login args" do
+      config = Config.new(binary: "echo")
+      assert {:ok, output} = Mcp.login(config, "my-server")
+      assert output =~ "mcp login my-server"
+      refute output =~ "--scopes"
+    end
+
+    test "joins a scope list into one comma-separated value" do
+      config = Config.new(binary: "echo")
+      assert {:ok, output} = Mcp.login(config, "my-server", scopes: ["read", "write"])
+      assert output =~ "mcp login my-server --scopes read,write"
+    end
+
+    test "passes a scope string through unchanged" do
+      config = Config.new(binary: "echo")
+      assert {:ok, output} = Mcp.login(config, "my-server", scopes: "read,write")
+      assert output =~ "--scopes read,write"
+    end
+  end
+
+  describe "logout/2" do
+    test "builds logout args" do
+      config = Config.new(binary: "echo")
+      assert {:ok, output} = Mcp.logout(config, "my-server")
+      assert output =~ "mcp logout my-server"
     end
   end
 end

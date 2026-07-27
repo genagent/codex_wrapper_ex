@@ -295,11 +295,29 @@ config = CodexWrapper.Config.new()
   bearer_token_env_var: "MY_TOKEN"
 )
 
+# Add a server that authenticates over OAuth
+{:ok, _} = Mcp.add(config, "oauth-server", :http,
+  url: "https://example.com/mcp",
+  oauth_client_id: "codex-cli",
+  oauth_resource: "https://example.com"
+)
+
 # Get server details
 {:ok, info} = Mcp.get(config, "my-server", json: true)
 
 # Remove a server
 {:ok, _} = Mcp.remove(config, "my-server")
+```
+
+### MCP OAuth
+
+`login/3` runs the OAuth flow for a configured server and `logout/2` clears
+its credentials.
+
+```elixir
+{:ok, _} = Mcp.login(config, "oauth-server")
+{:ok, _} = Mcp.login(config, "oauth-server", scopes: ["read", "write"])
+{:ok, _} = Mcp.logout(config, "oauth-server")
 ```
 
 ## Running Codex as an MCP server
