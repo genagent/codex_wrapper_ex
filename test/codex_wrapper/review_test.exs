@@ -141,6 +141,11 @@ defmodule CodexWrapper.ReviewTest do
       assert args == ["exec", "review", "--base", "main", "--model", "o3"]
     end
 
+    test "never emits --profile, which codex exec review rejects" do
+      args = Review.new() |> Review.model("o3") |> Review.title("PR 1") |> Review.args()
+      refute "--profile" in args
+    end
+
     test "specific commit review" do
       args =
         Review.new()

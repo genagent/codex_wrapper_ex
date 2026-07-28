@@ -30,6 +30,7 @@ defmodule CodexWrapper.Exec do
   @type t :: %__MODULE__{
           prompt: String.t(),
           model: String.t() | nil,
+          profile: String.t() | nil,
           sandbox: sandbox_mode() | nil,
           approval_policy: approval_policy() | nil,
           full_auto: boolean(),
@@ -58,6 +59,7 @@ defmodule CodexWrapper.Exec do
   defstruct [
     :prompt,
     :model,
+    :profile,
     :sandbox,
     :approval_policy,
     :cd,
@@ -98,6 +100,15 @@ defmodule CodexWrapper.Exec do
   @doc "Set the model."
   @spec model(t(), String.t()) :: t()
   def model(%__MODULE__{} = e, model), do: %{e | model: model}
+
+  @doc """
+  Select a named config profile.
+
+  Emits `--profile <name>`, which tells the Codex CLI to load the
+  `[profiles.<name>]` section of `config.toml`.
+  """
+  @spec profile(t(), String.t()) :: t()
+  def profile(%__MODULE__{} = e, name), do: %{e | profile: name}
 
   @doc "Set the sandbox mode."
   @spec sandbox(t(), sandbox_mode()) :: t()
@@ -358,6 +369,7 @@ defmodule CodexWrapper.Exec do
     |> add_opt("--model", e.model)
     |> add_bool("--oss", e.oss)
     |> add_opt("--local-provider", e.local_provider)
+    |> add_opt("--profile", e.profile)
     |> add_opt("--sandbox", format_sandbox(effective_sandbox(e)))
     |> add_bool(
       "--dangerously-bypass-approvals-and-sandbox",

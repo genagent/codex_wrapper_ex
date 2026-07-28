@@ -156,6 +156,16 @@ defmodule CodexWrapper.ExecResumeTest do
              ]
     end
 
+    test "never emits --profile, which codex exec resume rejects" do
+      args =
+        ExecResume.new()
+        |> ExecResume.model("o3")
+        |> ExecResume.prompt("continue")
+        |> ExecResume.args()
+
+      refute "--profile" in args
+    end
+
     test "config overrides come first" do
       args =
         ExecResume.new()

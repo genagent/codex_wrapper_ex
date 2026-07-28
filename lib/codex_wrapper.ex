@@ -95,6 +95,7 @@ defmodule CodexWrapper do
 
   Exec options (passed to `Exec` builder):
     * `:model` - Model name
+    * `:profile` - Named config profile (`--profile`)
     * `:sandbox` - Sandbox mode atom
     * `:approval_policy` - Approval policy atom (`:untrusted`, `:on_request`, `:never`)
     * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
@@ -275,6 +276,9 @@ defmodule CodexWrapper do
     Enum.reduce(opts, exec, fn
       {:model, v}, e ->
         Exec.model(e, v)
+
+      {:profile, v}, e ->
+        Exec.profile(e, v)
 
       {:sandbox, v}, e ->
         Exec.sandbox(e, v)
