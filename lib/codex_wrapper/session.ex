@@ -24,6 +24,7 @@ defmodule CodexWrapper.Session do
       session = CodexWrapper.Session.resume(config, "session-id-abc")
   """
 
+  alias CodexWrapper.Commands.Archive
   alias CodexWrapper.{Config, Exec, ExecResume, JsonLineEvent, Result}
 
   @type t :: %__MODULE__{
@@ -155,6 +156,45 @@ defmodule CodexWrapper.Session do
   @spec last_result(t()) :: Result.t() | nil
   def last_result(%__MODULE__{history: []}), do: nil
   def last_result(%__MODULE__{history: history}), do: List.last(history)
+
+  @doc """
+  Archive this session (`codex archive`). Reversible with `unarchive/1`.
+
+  Returns `{:error, :no_session}` if no turn has run yet, since the
+  session id only exists once the CLI has created it.
+  """
+  @spec archive(t()) :: {:ok, String.t()} | {:error, :no_session | term()}
+  def archive(%__MODULE__{session_id: nil}), do: {:error, :no_session}
+
+  def archive(%__MODULE__{session_id: sid, config: config}),
+    do: Archive.archive(config, sid)
+
+  @doc """
+  Unarchive this session (`codex unarchive`).
+
+  Returns `{:error, :no_session}` if no turn has run yet.
+  """
+  @spec unarchive(t()) :: {:ok, String.t()} | {:error, :no_session | term()}
+  def unarchive(%__MODULE__{session_id: nil}), do: {:error, :no_session}
+
+  def unarchive(%__MODULE__{session_id: sid, config: config}),
+    do: Archive.unarchive(config, sid)
+
+  @doc """
+  Permanently delete this session (`codex delete`).
+
+  Requires `confirm: true`, like `CodexWrapper.Commands.Archive.delete/3`
+  it delegates to; without it the CLI is not invoked. Returns
+  `{:error, :no_session}` if no turn has run yet.
+  """
+  @spec delete(t(), keyword()) ::
+          {:ok, String.t()} | {:error, :no_session | :confirmation_required | term()}
+  def delete(session, opts \\ [])
+
+  def delete(%__MODULE__{session_id: nil}, _opts), do: {:error, :no_session}
+
+  def delete(%__MODULE__{session_id: sid, config: config}, opts),
+    do: Archive.delete(config, sid, opts)
 
   # --- Private ---
 

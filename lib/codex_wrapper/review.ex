@@ -42,13 +42,17 @@ defmodule CodexWrapper.Review do
           sandbox: sandbox_mode() | nil,
           full_auto: boolean(),
           dangerously_bypass_approvals_and_sandbox: boolean(),
+          dangerously_bypass_hook_trust: boolean(),
           skip_git_repo_check: boolean(),
           ephemeral: boolean(),
           json: boolean(),
           output_last_message: String.t() | nil,
           config_overrides: [String.t()],
           enabled_features: [String.t()],
-          disabled_features: [String.t()]
+          disabled_features: [String.t()],
+          strict_config: boolean(),
+          ignore_user_config: boolean(),
+          ignore_rules: boolean()
         }
 
   defstruct [
@@ -62,12 +66,16 @@ defmodule CodexWrapper.Review do
     uncommitted: false,
     full_auto: false,
     dangerously_bypass_approvals_and_sandbox: false,
+    dangerously_bypass_hook_trust: false,
     skip_git_repo_check: false,
     ephemeral: false,
     json: false,
     config_overrides: [],
     enabled_features: [],
-    disabled_features: []
+    disabled_features: [],
+    strict_config: false,
+    ignore_user_config: false,
+    ignore_rules: false
   ]
 
   # --- Constructor ---
@@ -104,16 +112,24 @@ defmodule CodexWrapper.Review do
   @spec model(t(), String.t()) :: t()
   def model(%__MODULE__{} = r, model), do: %{r | model: model}
 
-  @doc "Set the sandbox mode."
+  @doc """
+  Set the sandbox mode.
+
+  Emits `-c sandbox_mode="<mode>"` rather than `--sandbox <mode>`: the
+  flag is accepted by `codex exec` only, and `codex exec review` rejects
+  it with `unexpected argument`. The config key is the supported
+  equivalent and takes the same three values.
+  """
   @spec sandbox(t(), sandbox_mode()) :: t()
   def sandbox(%__MODULE__{} = r, mode), do: %{r | sandbox: mode}
 
   @doc """
   Enable full-auto mode.
 
-  Deprecated upstream. Emits `--sandbox workspace-write`, which is what
-  the Codex CLI now tells you to use in place of `--full-auto`. An
-  explicit `sandbox/2` call is more specific and wins over this.
+  Deprecated upstream. Emits `-c sandbox_mode="workspace-write"`, the
+  config-key form of what the Codex CLI now tells you to use in place of
+  `--full-auto`. An explicit `sandbox/2` call is more specific and wins
+  over this.
   """
   @spec full_auto(t()) :: t()
   def full_auto(%__MODULE__{} = r), do: %{r | full_auto: true}
@@ -122,6 +138,40 @@ defmodule CodexWrapper.Review do
   @spec dangerously_bypass_approvals_and_sandbox(t()) :: t()
   def dangerously_bypass_approvals_and_sandbox(%__MODULE__{} = r),
     do: %{r | dangerously_bypass_approvals_and_sandbox: true}
+
+  @doc """
+  Run enabled hooks without requiring persisted hook trust. Use with extreme caution.
+
+  Hook trust is what stops a repository from running arbitrary commands
+  the user never approved. Only appropriate for automation that already
+  vets where its hooks come from.
+  """
+  @spec dangerously_bypass_hook_trust(t()) :: t()
+  def dangerously_bypass_hook_trust(%__MODULE__{} = r),
+    do: %{r | dangerously_bypass_hook_trust: true}
+
+  @doc """
+  Error out when `config.toml` contains fields this Codex version does not recognize.
+
+  Turns a silently-ignored typo in a config file into a failed run, which
+  is usually what a programmatic caller wants.
+  """
+  @spec strict_config(t()) :: t()
+  def strict_config(%__MODULE__{} = r), do: %{r | strict_config: true}
+
+  @doc """
+  Do not load `$CODEX_HOME/config.toml`.
+
+  Auth still resolves through `CODEX_HOME`; only the config file is
+  skipped. Pair with `config/2` overrides for a run that does not pick up
+  the developer's personal settings.
+  """
+  @spec ignore_user_config(t()) :: t()
+  def ignore_user_config(%__MODULE__{} = r), do: %{r | ignore_user_config: true}
+
+  @doc "Do not load user or project execpolicy `.rules` files."
+  @spec ignore_rules(t()) :: t()
+  def ignore_rules(%__MODULE__{} = r), do: %{r | ignore_rules: true}
 
   @doc "Skip the git repo check."
   @spec skip_git_repo_check(t()) :: t()
@@ -233,21 +283,24 @@ defmodule CodexWrapper.Review do
   @impl Command
   def args(%__MODULE__{} = r) do
     ["exec", "review"]
-    |> add_list("-c", r.config_overrides)
+    |> add_list("-c", config_overrides(r))
     |> add_list("--enable", r.enabled_features)
     |> add_list("--disable", r.disabled_features)
     |> add_bool("--uncommitted", r.uncommitted)
     |> add_opt("--base", r.base)
     |> add_opt("--commit", r.commit)
+    |> add_bool("--strict-config", r.strict_config)
     |> add_opt("--model", r.model)
     |> add_opt("--title", r.title)
-    |> add_opt("--sandbox", format_sandbox(effective_sandbox(r)))
     |> add_bool(
       "--dangerously-bypass-approvals-and-sandbox",
       r.dangerously_bypass_approvals_and_sandbox
     )
+    |> add_bool("--dangerously-bypass-hook-trust", r.dangerously_bypass_hook_trust)
     |> add_bool("--skip-git-repo-check", r.skip_git_repo_check)
     |> add_bool("--ephemeral", r.ephemeral)
+    |> add_bool("--ignore-user-config", r.ignore_user_config)
+    |> add_bool("--ignore-rules", r.ignore_rules)
     |> add_bool("--json", r.json)
     |> add_opt("--output-last-message", r.output_last_message)
     |> add_prompt(r.prompt)
@@ -282,6 +335,22 @@ defmodule CodexWrapper.Review do
 
   defp port_cd_opts(%Config{working_dir: nil}), do: []
   defp port_cd_opts(%Config{working_dir: dir}), do: [{:cd, String.to_charlist(dir)}]
+
+  # `--sandbox` is an `exec`-only flag: `exec review` rejects it outright.
+  # `sandbox_mode` is the config key the subcommand does accept, so the
+  # builder option folds into the `-c` overrides rather than dropping.
+  # User-supplied overrides come first, so an explicit `sandbox/2` call
+  # wins on a last-wins CLI.
+  defp config_overrides(%__MODULE__{} = r) do
+    r.config_overrides ++ sandbox_override(r)
+  end
+
+  defp sandbox_override(%__MODULE__{} = r) do
+    case format_sandbox(effective_sandbox(r)) do
+      nil -> []
+      mode -> [~s(sandbox_mode="#{mode}")]
+    end
+  end
 
   # `--full-auto` is deprecated upstream ("use --sandbox workspace-write"),
   # so translate it instead of emitting it. An explicit sandbox/2 call is

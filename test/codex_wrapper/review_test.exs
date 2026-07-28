@@ -21,6 +21,10 @@ defmodule CodexWrapper.ReviewTest do
       assert review.config_overrides == []
       assert review.enabled_features == []
       assert review.disabled_features == []
+      assert review.strict_config == false
+      assert review.ignore_user_config == false
+      assert review.ignore_rules == false
+      assert review.dangerously_bypass_hook_trust == false
     end
   end
 
@@ -188,8 +192,8 @@ defmodule CodexWrapper.ReviewTest do
         |> Review.args()
 
       refute "--full-auto" in args
-      assert "--sandbox" in args
-      assert "workspace-write" in args
+      refute "--sandbox" in args
+      assert ~s(sandbox_mode="workspace-write") in args
       assert "--dangerously-bypass-approvals-and-sandbox" in args
       assert "--skip-git-repo-check" in args
       assert "--ephemeral" in args
@@ -243,23 +247,105 @@ defmodule CodexWrapper.ReviewTest do
   end
 
   describe "full_auto translation" do
-    test "full_auto translates to --sandbox workspace-write" do
+    test "full_auto translates to sandbox_mode workspace-write" do
       args = Review.new() |> Review.full_auto() |> Review.args()
-      idx = Enum.find_index(args, &(&1 == "--sandbox"))
-      assert Enum.at(args, idx + 1) == "workspace-write"
+      idx = Enum.find_index(args, &(&1 == ~s(sandbox_mode="workspace-write")))
+      assert Enum.at(args, idx - 1) == "-c"
       refute "--full-auto" in args
     end
 
     test "an explicit sandbox wins over full_auto" do
       args = Review.new() |> Review.full_auto() |> Review.sandbox(:read_only) |> Review.args()
-      idx = Enum.find_index(args, &(&1 == "--sandbox"))
-      assert Enum.at(args, idx + 1) == "read-only"
-      refute "workspace-write" in args
+      assert ~s(sandbox_mode="read-only") in args
+      refute ~s(sandbox_mode="workspace-write") in args
     end
 
-    test "no --sandbox when neither is set" do
+    test "no sandbox_mode override when neither is set" do
       args = Review.new() |> Review.args()
+      refute Enum.any?(args, &String.starts_with?(&1, "sandbox_mode="))
+    end
+  end
+
+  # `codex exec review` rejects `--sandbox` with "unexpected argument"; the
+  # flag is accepted by `codex exec` only. See issue #80.
+  describe "sandbox mode is a -c override, never a flag" do
+    test "sandbox/2 emits -c sandbox_mode and no bare --sandbox" do
+      for {mode, formatted} <- [
+            {:read_only, "read-only"},
+            {:workspace_write, "workspace-write"},
+            {:danger_full_access, "danger-full-access"}
+          ] do
+        args = Review.new() |> Review.sandbox(mode) |> Review.args()
+
+        refute "--sandbox" in args
+        idx = Enum.find_index(args, &(&1 == ~s(sandbox_mode="#{formatted}")))
+        assert Enum.at(args, idx - 1) == "-c"
+      end
+    end
+
+    test "full_auto/1 emits no bare --sandbox either" do
+      args = Review.new() |> Review.full_auto() |> Review.args()
       refute "--sandbox" in args
+    end
+
+    test "user config overrides come before the derived sandbox_mode" do
+      args =
+        Review.new()
+        |> Review.config(~s(sandbox_mode="danger-full-access"))
+        |> Review.sandbox(:read_only)
+        |> Review.args()
+
+      user_idx = Enum.find_index(args, &(&1 == ~s(sandbox_mode="danger-full-access")))
+      derived_idx = Enum.find_index(args, &(&1 == ~s(sandbox_mode="read-only")))
+      assert user_idx < derived_idx
+    end
+  end
+
+  describe "config and trust flags" do
+    test "strict_config/1" do
+      review = Review.new() |> Review.strict_config()
+      assert review.strict_config == true
+      assert "--strict-config" in Review.args(review)
+    end
+
+    test "ignore_user_config/1" do
+      review = Review.new() |> Review.ignore_user_config()
+      assert review.ignore_user_config == true
+      assert "--ignore-user-config" in Review.args(review)
+    end
+
+    test "ignore_rules/1" do
+      review = Review.new() |> Review.ignore_rules()
+      assert review.ignore_rules == true
+      assert "--ignore-rules" in Review.args(review)
+    end
+
+    test "dangerously_bypass_hook_trust/1" do
+      review = Review.new() |> Review.dangerously_bypass_hook_trust()
+      assert review.dangerously_bypass_hook_trust == true
+      assert "--dangerously-bypass-hook-trust" in Review.args(review)
+    end
+
+    test "flags precede the positional prompt" do
+      args =
+        Review.new()
+        |> Review.prompt("focus on correctness")
+        |> Review.strict_config()
+        |> Review.ignore_rules()
+        |> Review.args()
+
+      assert List.last(args) == "focus on correctness"
+      assert "--strict-config" in args
+      assert "--ignore-rules" in args
+    end
+
+    test "none of the flags are emitted when unset" do
+      args = Review.new() |> Review.args()
+
+      refute "--strict-config" in args
+      refute "--ignore-user-config" in args
+      refute "--ignore-rules" in args
+      refute "--dangerously-bypass-hook-trust" in args
     end
   end
 end

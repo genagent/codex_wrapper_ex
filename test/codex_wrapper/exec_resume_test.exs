@@ -21,6 +21,10 @@ defmodule CodexWrapper.ExecResumeTest do
       assert exec.config_overrides == []
       assert exec.enabled_features == []
       assert exec.disabled_features == []
+      assert exec.strict_config == false
+      assert exec.ignore_user_config == false
+      assert exec.ignore_rules == false
+      assert exec.dangerously_bypass_hook_trust == false
     end
   end
 
@@ -141,10 +145,10 @@ defmodule CodexWrapper.ExecResumeTest do
       assert args == [
                "exec",
                "resume",
+               "-c",
+               ~s(sandbox_mode="workspace-write"),
                "--model",
                "gpt-5",
-               "--sandbox",
-               "workspace-write",
                "--skip-git-repo-check",
                "--json",
                "abc-123",
@@ -196,8 +200,8 @@ defmodule CodexWrapper.ExecResumeTest do
         |> ExecResume.args()
 
       refute "--full-auto" in args
-      assert "--sandbox" in args
-      assert "workspace-write" in args
+      refute "--sandbox" in args
+      assert ~s(sandbox_mode="workspace-write") in args
       assert "--dangerously-bypass-approvals-and-sandbox" in args
       assert "--last" in args
       assert "--all" in args
@@ -233,10 +237,10 @@ defmodule CodexWrapper.ExecResumeTest do
   end
 
   describe "full_auto translation" do
-    test "full_auto translates to --sandbox workspace-write" do
+    test "full_auto translates to sandbox_mode workspace-write" do
       args = ExecResume.new() |> ExecResume.full_auto() |> ExecResume.args()
-      idx = Enum.find_index(args, &(&1 == "--sandbox"))
-      assert Enum.at(args, idx + 1) == "workspace-write"
+      idx = Enum.find_index(args, &(&1 == ~s(sandbox_mode="workspace-write")))
+      assert Enum.at(args, idx - 1) == "-c"
       refute "--full-auto" in args
     end
 
@@ -247,14 +251,98 @@ defmodule CodexWrapper.ExecResumeTest do
         |> ExecResume.sandbox(:read_only)
         |> ExecResume.args()
 
-      idx = Enum.find_index(args, &(&1 == "--sandbox"))
-      assert Enum.at(args, idx + 1) == "read-only"
-      refute "workspace-write" in args
+      assert ~s(sandbox_mode="read-only") in args
+      refute ~s(sandbox_mode="workspace-write") in args
     end
 
-    test "no --sandbox when neither is set" do
+    test "no sandbox_mode override when neither is set" do
       args = ExecResume.new() |> ExecResume.args()
+      refute Enum.any?(args, &String.starts_with?(&1, "sandbox_mode="))
+    end
+  end
+
+  # `codex exec resume` rejects `--sandbox` with "unexpected argument"; the
+  # flag is accepted by `codex exec` only. See issue #80.
+  describe "sandbox mode is a -c override, never a flag" do
+    test "sandbox/2 emits -c sandbox_mode and no bare --sandbox" do
+      for {mode, formatted} <- [
+            {:read_only, "read-only"},
+            {:workspace_write, "workspace-write"},
+            {:danger_full_access, "danger-full-access"}
+          ] do
+        args = ExecResume.new() |> ExecResume.sandbox(mode) |> ExecResume.args()
+
+        refute "--sandbox" in args
+        idx = Enum.find_index(args, &(&1 == ~s(sandbox_mode="#{formatted}")))
+        assert Enum.at(args, idx - 1) == "-c"
+      end
+    end
+
+    test "full_auto/1 emits no bare --sandbox either" do
+      args = ExecResume.new() |> ExecResume.full_auto() |> ExecResume.args()
       refute "--sandbox" in args
+    end
+
+    test "user config overrides come before the derived sandbox_mode" do
+      args =
+        ExecResume.new()
+        |> ExecResume.config(~s(sandbox_mode="danger-full-access"))
+        |> ExecResume.sandbox(:read_only)
+        |> ExecResume.args()
+
+      user_idx = Enum.find_index(args, &(&1 == ~s(sandbox_mode="danger-full-access")))
+      derived_idx = Enum.find_index(args, &(&1 == ~s(sandbox_mode="read-only")))
+      assert user_idx < derived_idx
+    end
+  end
+
+  describe "config and trust flags" do
+    test "strict_config/1" do
+      exec = ExecResume.new() |> ExecResume.strict_config()
+      assert exec.strict_config == true
+      assert "--strict-config" in ExecResume.args(exec)
+    end
+
+    test "ignore_user_config/1" do
+      exec = ExecResume.new() |> ExecResume.ignore_user_config()
+      assert exec.ignore_user_config == true
+      assert "--ignore-user-config" in ExecResume.args(exec)
+    end
+
+    test "ignore_rules/1" do
+      exec = ExecResume.new() |> ExecResume.ignore_rules()
+      assert exec.ignore_rules == true
+      assert "--ignore-rules" in ExecResume.args(exec)
+    end
+
+    test "dangerously_bypass_hook_trust/1" do
+      exec = ExecResume.new() |> ExecResume.dangerously_bypass_hook_trust()
+      assert exec.dangerously_bypass_hook_trust == true
+      assert "--dangerously-bypass-hook-trust" in ExecResume.args(exec)
+    end
+
+    test "flags precede the positional session id and prompt" do
+      args =
+        ExecResume.new()
+        |> ExecResume.session_id("abc-123")
+        |> ExecResume.prompt("continue")
+        |> ExecResume.strict_config()
+        |> ExecResume.ignore_user_config()
+        |> ExecResume.args()
+
+      assert List.last(args) == "continue"
+      assert Enum.at(args, -2) == "abc-123"
+      assert Enum.find_index(args, &(&1 == "--strict-config")) < length(args) - 2
+      assert Enum.find_index(args, &(&1 == "--ignore-user-config")) < length(args) - 2
+    end
+
+    test "none of the flags are emitted when unset" do
+      args = ExecResume.new() |> ExecResume.args()
+
+      refute "--strict-config" in args
+      refute "--ignore-user-config" in args
+      refute "--ignore-rules" in args
+      refute "--dangerously-bypass-hook-trust" in args
     end
   end
 end
