@@ -13,12 +13,14 @@ defmodule CodexWrapper.Commands.Auth do
   ## Options
 
     * `:with_api_key` - Use API key authentication (boolean)
+    * `:with_access_token` - Use access token authentication (boolean)
     * `:device_auth` - Use device authorization flow (boolean)
   """
   @spec login(Config.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def login(%Config{} = config, opts \\ []) do
     args = Config.base_args(config) ++ ["login"]
     args = if opts[:with_api_key], do: args ++ ["--with-api-key"], else: args
+    args = if opts[:with_access_token], do: args ++ ["--with-access-token"], else: args
     args = if opts[:device_auth], do: args ++ ["--device-auth"], else: args
 
     case System.cmd(config.binary, args, Config.cmd_opts(config)) do

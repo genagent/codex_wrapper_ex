@@ -16,6 +16,12 @@ defmodule CodexWrapper.Commands.AuthTest do
       assert output =~ "--with-api-key"
     end
 
+    test "builds args with with_access_token" do
+      config = Config.new(binary: "echo")
+      assert {:ok, output} = Auth.login(config, with_access_token: true)
+      assert output =~ "--with-access-token"
+    end
+
     test "builds args with device_auth" do
       config = Config.new(binary: "echo")
       assert {:ok, output} = Auth.login(config, device_auth: true)

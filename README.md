@@ -135,6 +135,46 @@ Both emit `-c web_search="<mode>"`. The Codex CLI removed the `--search`
 flag from `exec` in 0.14x; the config key is the supported equivalent,
 and `:live` is what `--search` used to mean.
 
+### Config isolation
+
+By default the CLI loads `$CODEX_HOME/config.toml`, so a programmatic run
+silently inherits whatever the developer has configured. Two options take
+that away:
+
+```elixir
+Exec.new("Summarize the diff")
+|> Exec.ignore_user_config()
+|> Exec.strict_config()
+|> Exec.config(~s(model="o3"))
+|> Exec.execute(config)
+```
+
+`ignore_user_config/1` skips the config file entirely (auth still
+resolves through `CODEX_HOME`). `strict_config/1` makes the run fail on a
+config key this Codex version does not recognize, rather than ignoring
+it. Together they give a run whose configuration is exactly what the
+caller passed.
+
+`ignore_rules/1` is the same idea for execpolicy `.rules` files.
+
+All three are available on `Exec`, `ExecResume`, and `Review`.
+
+### Hook trust
+
+`dangerously_bypass_hook_trust/1` runs enabled hooks without requiring
+persisted hook trust. Hook trust is what stops a repository from running
+commands the user never approved, so this belongs only in automation that
+already vets where its hooks come from. It is separate from
+`dangerously_bypass_approvals_and_sandbox/1`; setting one does not set the
+other. Available on `Exec`, `ExecResume`, and `Review`.
+
+### Color and local providers
+
+`color/2` (`:always`, `:never`, `:auto`), `oss/1`, and `local_provider/2`
+(`"lmstudio"` or `"ollama"`) are on `Exec` only. `codex exec resume` and
+`codex exec review` reject `--color`, `--oss`, and `--local-provider`,
+verified against codex-cli 0.145.0.
+
 ## Review builder
 
 ```elixir
@@ -161,9 +201,16 @@ Review.new()
 ```
 
 `full_auto/1` is still available on `Exec`, `ExecResume` and `Review`,
-but it is deprecated upstream: it now emits `--sandbox workspace-write`
-rather than the deprecated `--full-auto` flag. An explicit `sandbox/2`
-call wins over it.
+but it is deprecated upstream: it now selects the `workspace-write`
+sandbox rather than emitting the deprecated `--full-auto` flag. An
+explicit `sandbox/2` call wins over it.
+
+`sandbox/2` works on all three builders but emits different arguments.
+`codex exec` takes `--sandbox <mode>`; `codex exec resume` and `codex
+exec review` reject that flag with `unexpected argument`, so on
+`ExecResume` and `Review` the builder emits the equivalent config
+override `-c sandbox_mode="<mode>"` instead. The public API and the
+three accepted modes are the same either way.
 
 ## Session resumption
 
@@ -259,11 +306,29 @@ config = CodexWrapper.Config.new()
   bearer_token_env_var: "MY_TOKEN"
 )
 
+# Add a server that authenticates over OAuth
+{:ok, _} = Mcp.add(config, "oauth-server", :http,
+  url: "https://example.com/mcp",
+  oauth_client_id: "codex-cli",
+  oauth_resource: "https://example.com"
+)
+
 # Get server details
 {:ok, info} = Mcp.get(config, "my-server", json: true)
 
 # Remove a server
 {:ok, _} = Mcp.remove(config, "my-server")
+```
+
+### MCP OAuth
+
+`login/3` runs the OAuth flow for a configured server and `logout/2` clears
+its credentials.
+
+```elixir
+{:ok, _} = Mcp.login(config, "oauth-server")
+{:ok, _} = Mcp.login(config, "oauth-server", scopes: ["read", "write"])
+{:ok, _} = Mcp.logout(config, "oauth-server")
 ```
 
 ## Running Codex as an MCP server
@@ -284,6 +349,7 @@ alias CodexWrapper.Commands.Auth
 
 {:ok, _} = Auth.login(config)
 {:ok, _} = Auth.login(config, with_api_key: true)
+{:ok, _} = Auth.login(config, with_access_token: true)
 {:ok, _} = Auth.status(config)
 {:ok, _} = Auth.logout(config)
 ```
@@ -332,6 +398,41 @@ alias CodexWrapper.Commands.Completion
 
 {:ok, script} = Completion.generate(config, :zsh)
 ```
+
+## Session lifecycle
+
+`codex archive`, `codex unarchive`, and `codex delete` operate on a saved
+session, named by id (UUID) or session name.
+
+```elixir
+alias CodexWrapper.Commands.Archive
+
+{:ok, _} = Archive.archive(config, "abc-123")
+{:ok, _} = Archive.unarchive(config, "abc-123")
+```
+
+`delete` permanently destroys the session, and `unarchive` cannot bring
+it back. So it requires an explicit confirmation; without it the CLI is
+never invoked.
+
+```elixir
+Archive.delete(config, "abc-123")
+# => {:error, :confirmation_required}
+
+Archive.delete(config, "abc-123", confirm: true)
+# => {:ok, ""}
+```
+
+The same three are available on a `%Session{}`, using its session id:
+
+```elixir
+{:ok, _} = CodexWrapper.Session.archive(session)
+{:ok, _} = CodexWrapper.Session.unarchive(session)
+{:ok, _} = CodexWrapper.Session.delete(session, confirm: true)
+```
+
+They return `{:error, :no_session}` if no turn has run yet, since the
+session id only exists once the CLI has created it.
 
 ## Applying diffs
 
@@ -425,6 +526,13 @@ The streaming paths (`Exec.stream/2` and friends) still use the built-in
 | `:json` | `boolean()` | Enable JSON (NDJSON) output |
 | `:output_schema` | `String.t()` | Path to output schema file |
 | `:output_last_message` | `String.t()` | Path to save last message |
+| `:strict_config` | `boolean()` | Fail on unrecognized `config.toml` keys |
+| `:ignore_user_config` | `boolean()` | Skip `$CODEX_HOME/config.toml` |
+| `:ignore_rules` | `boolean()` | Skip execpolicy `.rules` files |
+| `:dangerously_bypass_hook_trust` | `boolean()` | Run hooks without persisted trust |
+| `:color` | atom | `:always`, `:never`, or `:auto` (Exec only) |
+| `:oss` | `boolean()` | Use an open-source provider (Exec only) |
+| `:local_provider` | `String.t()` | `"lmstudio"` or `"ollama"` (Exec only) |
 
 ## Modules
 
@@ -452,6 +560,7 @@ The streaming paths (`Exec.stream/2` and friends) still use the built-in
 | `CodexWrapper.Commands.Sandbox` | Sandboxed command execution |
 | `CodexWrapper.Commands.Fork` | Session forking |
 | `CodexWrapper.Commands.Apply` | Apply diffs from task IDs |
+| `CodexWrapper.Commands.Archive` | Archive, unarchive, and delete saved sessions |
 | `CodexWrapper.Commands.Completion` | Shell completion script generation |
 | `CodexWrapper.Commands.Version` | CLI version |
 
