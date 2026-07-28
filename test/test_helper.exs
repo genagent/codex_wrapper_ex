@@ -6,7 +6,8 @@ forcola_ready? =
   Code.ensure_loaded?(Forcola) and
     match?({:ok, _}, Forcola.Shim.path())
 
-exclude = if forcola_ready?, do: [], else: [:forcola]
+# Live tests make authenticated Codex requests and are always opt-in.
+exclude = [:integration] ++ if forcola_ready?, do: [], else: [:forcola]
 
 unless forcola_ready? do
   IO.puts("[test_helper] forcola shim not resolvable; excluding :forcola tests")
