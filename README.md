@@ -25,6 +25,26 @@ end
 Requires the `codex` CLI to be installed and on your PATH (or set `CODEX_CLI`
 to point at it).
 
+## Codex CLI compatibility
+
+Tested against codex-cli 0.145.0.
+
+The Codex CLI moves quickly and has removed flags between releases, so a
+wrapper release is only known to match the version recorded here. Subcommands
+this wrapper does not cover -- including the experimental `app-server`,
+`remote-control`, `cloud`, and `exec-server` -- are reachable through
+[`CodexWrapper.raw/1`](#raw-cli-escape-hatch):
+
+```elixir
+CodexWrapper.raw(["some", "new", "subcommand"])
+```
+
+Keeping the version current is part of the release checklist: bump the line
+above whenever the wrapper is verified against a newer CLI. The weekly
+`CLI contract` workflow installs the latest `@openai/codex` and runs
+`mix codex.contract`, opening a `cli-drift` issue when the wrapper emits a
+flag the CLI no longer accepts.
+
 ## Quick start
 
 ```elixir
