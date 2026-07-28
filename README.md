@@ -204,6 +204,17 @@ Review.new()
 |> Review.execute(config)
 ```
 
+`output_schema/2` points `codex exec review` at a JSON Schema file via
+`--output-schema`, the same way `Exec.output_schema/2` does, so a review
+can return structured output:
+
+```elixir
+Review.new()
+|> Review.uncommitted()
+|> Review.output_schema("/path/to/schema.json")
+|> Review.execute(config)
+```
+
 `full_auto/1` is still available on `Exec`, `ExecResume` and `Review`,
 but it is deprecated upstream: it now selects the `workspace-write`
 sandbox rather than emitting the deprecated `--full-auto` flag. An
