@@ -111,8 +111,6 @@ defmodule CodexWrapper.IntegrationTest do
           flunk("missing #{inspect(expected_type)} after #{inspect(actual)}")
       end
     end)
-
-    :ok
   end
 
   defp thread_id(events) do
