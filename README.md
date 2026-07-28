@@ -479,9 +479,11 @@ CodexWrapper.raw(["some", "new", "subcommand"])
 
 ### Runners: process-group cleanup with forcola
 
-Synchronous commands (`CodexWrapper.exec/2`, `Exec.execute/2`,
-`ExecResume.execute/2`, `Review.execute/2`) route through a runner
-module. The default, `CodexWrapper.Runner.Port`, runs `codex` under a
+Every `codex` subprocess -- the synchronous commands
+(`CodexWrapper.exec/2`, `Exec.execute/2`, `ExecResume.execute/2`,
+`Review.execute/2`) and the NDJSON streaming paths (`Exec.stream/2`,
+`ExecResume.stream/2`, `Review.stream/2`, `Session.stream/3`) -- routes
+through a runner module. The default, `CodexWrapper.Runner.Port`, runs `codex` under a
 `/bin/sh` wrapper with stdin closed and bounds it with a BEAM `Task`
 timeout. On timeout the BEAM task is killed, but no signal reaches the
 `codex` process group, so `codex` and any stdio MCP servers it spawned
@@ -523,8 +525,25 @@ the dependency stays optional and the default path is unchanged.
 config :codex_wrapper, runner: :forcola, forcola_default_timeout_ms: 120_000
 ```
 
-The streaming paths (`Exec.stream/2` and friends) still use the built-in
-`Port`; forcola-backed streaming is a planned follow-up (see #48).
+#### Streaming through a runner
+
+The streaming paths go through the same selection, so `:forcola` gets
+their process group killed too -- on an early `Enum.take/2`, on a
+timeout, or when the BEAM dies.
+
+The two runners enforce a command's `:timeout` differently for a stream.
+`Runner.Port` treats it as an *idle* bound (the wait for the next line,
+what the streaming paths have always used, defaulting to `300_000` when
+`:timeout` is `nil`). `Runner.Forcola` treats it as forcola's whole-run
+bound, falling back to `:forcola_default_timeout_ms` the same way the
+synchronous path does.
+
+A non-zero exit ends a stream without raising on either runner -- the
+`Enumerable` simply finishes. Use `execute/2` when the exit code matters.
+
+A custom runner only has to implement `run/4`; `stream_lines/4` is
+optional, and a runner without it falls back to `Runner.Port` for
+streams.
 
 ### Exec options
 
@@ -566,7 +585,7 @@ The streaming paths (`Exec.stream/2` and friends) still use the built-in
 | `CodexWrapper.Retry` | Exponential backoff retry |
 | `CodexWrapper.IEx` | Interactive REPL helpers |
 | `CodexWrapper.Command` | Behaviour for CLI commands |
-| `CodexWrapper.Runner` | Behaviour selecting how one-shot subprocesses execute |
+| `CodexWrapper.Runner` | Behaviour selecting how subprocesses execute and stream |
 | `CodexWrapper.Runner.Port` | Default runner (`/bin/sh` Port with closed stdin) |
 | `CodexWrapper.Runner.Forcola` | Optional leak-free runner via `forcola` |
 | `CodexWrapper.Commands.Auth` | Authentication (login/logout/status) |

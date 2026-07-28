@@ -34,7 +34,7 @@ defmodule CodexWrapper.Review do
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, JsonLineEvent, Result}
+  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Runner}
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
 
@@ -244,50 +244,17 @@ defmodule CodexWrapper.Review do
   @doc """
   Execute the review command and return a lazy `Stream` of `%JsonLineEvent{}`.
 
-  Uses a Port with `:line` mode to read NDJSON output line-by-line.
-  Forces `--json` on the command.
+  Reads NDJSON output line-by-line through the configured
+  `CodexWrapper.Runner`. Forces `--json` on the command.
   """
   @spec stream(t(), Config.t()) :: Enumerable.t()
   def stream(%__MODULE__{} = review, %Config{} = config) do
     review = %{review | json: true}
     args = Config.base_args(config) ++ args(review)
 
-    port_opts =
-      [:binary, :exit_status, {:line, 1_048_576}, {:args, args}] ++
-        port_env_opts(config) ++
-        port_cd_opts(config)
-
-    Stream.resource(
-      fn ->
-        Port.open({:spawn_executable, config.binary}, port_opts)
-      end,
-      fn port ->
-        receive do
-          {^port, {:data, {:eol, line}}} ->
-            case JsonLineEvent.parse(line) do
-              {:ok, event} -> {[event], port}
-              {:error, _} -> {[], port}
-            end
-
-          {^port, {:data, {:noeol, _partial}}} ->
-            {[], port}
-
-          {^port, {:exit_status, _code}} ->
-            {:halt, port}
-        after
-          300_000 -> {:halt, port}
-        end
-      end,
-      fn port ->
-        send(port, {self(), :close})
-
-        receive do
-          {^port, :closed} -> :ok
-        after
-          5_000 -> :ok
-        end
-      end
-    )
+    config.binary
+    |> Runner.stream_lines(args, Config.stream_opts(config), config.timeout)
+    |> JsonLineEvent.parse_stream()
   end
 
   # --- Command behaviour ---
@@ -342,12 +309,6 @@ defmodule CodexWrapper.Review do
   defp add_list(args, flag, values), do: args ++ Enum.flat_map(values, &[flag, &1])
 
   # --- Port helpers ---
-
-  defp port_env_opts(%Config{env: []}), do: []
-  defp port_env_opts(%Config{env: env}), do: [{:env, env}]
-
-  defp port_cd_opts(%Config{working_dir: nil}), do: []
-  defp port_cd_opts(%Config{working_dir: dir}), do: [{:cd, String.to_charlist(dir)}]
 
   # `--sandbox` is an `exec`-only flag: `exec review` rejects it outright.
   # `sandbox_mode` is the config key the subcommand does accept, so the

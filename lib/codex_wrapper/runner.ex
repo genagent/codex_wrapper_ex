@@ -28,6 +28,16 @@ defmodule CodexWrapper.Runner do
   exit is *not* an error -- callers decide what an exit code means),
   `{:error, :timeout}` when the timeout elapsed, and other `{:error,
   reason}` tuples for spawn/signal/io failures.
+
+  `stream_lines/4` returns a lazy `Enumerable` of stdout lines for the
+  NDJSON paths (`Exec.stream/2`, `ExecResume.stream/2`, `Review.stream/2`,
+  and `Session.stream/3` through the first two). Lines arrive without
+  their trailing newline, stderr is never merged into them, and the
+  stream ends when the process exits.
+
+  A non-zero exit ends the stream *without* raising, on either runner --
+  the same silent-halt the streaming paths have always had. Callers that
+  need the exit code should use `execute/2` rather than `stream/2`.
   """
 
   @typedoc "Runner error reasons. `:timeout` is common to every runner."
@@ -54,6 +64,29 @@ defmodule CodexWrapper.Runner do
             ) :: {:ok, {String.t(), non_neg_integer()}} | {:error, error()}
 
   @doc """
+  Run `binary` with `args` and stream its stdout as lines.
+
+  Returns a lazy `Enumerable` of lines without their trailing newlines.
+  Opening the process is deferred until the stream is consumed, and the
+  process is terminated when the stream halts (including an early
+  `Enum.take/2`).
+
+  `timeout` is enforced as each runner can: `Runner.Port` applies it as
+  an idle bound between output frames (what the streaming paths have
+  always done), `Runner.Forcola` as forcola's whole-run bound with a
+  process-group kill. `nil` means each runner's own default.
+
+  Optional. `CodexWrapper.Runner.stream_lines/4` falls back to
+  `Runner.Port` for runners that do not implement it.
+  """
+  @callback stream_lines(
+              binary :: String.t(),
+              args :: [String.t()],
+              opts :: opts(),
+              timeout :: timeout() | nil
+            ) :: Enumerable.t()
+
+  @doc """
   The timeout the runner will actually enforce for a caller's `timeout`.
 
   Callers pass `nil` for "no timeout", but a runner may substitute a bound
@@ -63,7 +96,7 @@ defmodule CodexWrapper.Runner do
   """
   @callback effective_timeout(timeout :: timeout() | nil) :: timeout() | nil
 
-  @optional_callbacks effective_timeout: 1
+  @optional_callbacks effective_timeout: 1, stream_lines: 4
 
   @doc """
   The configured runner module, `CodexWrapper.Runner.Port` by default.
@@ -109,5 +142,24 @@ defmodule CodexWrapper.Runner do
     else
       timeout
     end
+  end
+
+  @doc """
+  `stream_lines/4` on the configured runner.
+
+  Falls back to `CodexWrapper.Runner.Port` when the configured runner
+  does not implement the optional callback, so a runner written against
+  the one-shot `run/4` contract alone keeps working.
+  """
+  @spec stream_lines(String.t(), [String.t()], opts(), timeout() | nil) :: Enumerable.t()
+  def stream_lines(binary, args, opts, timeout) do
+    runner = impl()
+
+    runner =
+      if function_exported?(runner, :stream_lines, 4),
+        do: runner,
+        else: CodexWrapper.Runner.Port
+
+    runner.stream_lines(binary, args, opts, timeout)
   end
 end
