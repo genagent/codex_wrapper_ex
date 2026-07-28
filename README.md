@@ -553,6 +553,32 @@ The streaming paths (`Exec.stream/2` and friends) still use the built-in
 | `CodexWrapper.Commands.Completion` | Shell completion script generation |
 | `CodexWrapper.Commands.Version` | CLI version |
 
+## Testing
+
+The default suite does not invoke an authenticated Codex session:
+
+```bash
+mix test
+```
+
+Opt-in integration tests exercise the installed Codex CLI, including its
+live JSON event shape, session/thread identifier, feature-list format,
+and streaming Port path. They require `codex` on `PATH` and an active
+login:
+
+```bash
+mix test --include integration
+# or only the live checks
+mix test --only integration
+```
+
+The separate CLI contract check is authentication-free and verifies that
+the flags and config keys emitted by the wrapper are still accepted:
+
+```bash
+mix codex.contract
+```
+
 ## License
 
 MIT -- see [LICENSE](LICENSE).
