@@ -515,6 +515,73 @@ For subcommands not yet wrapped:
 CodexWrapper.raw(["some", "new", "subcommand"])
 ```
 
+## Telemetry
+
+CodexWrapper emits `:telemetry` span events around its core exec paths so
+host applications can observe durations and metadata without
+re-implementing instrumentation. Each operation produces a matched
+`:start`/`:stop` pair, or a `:start`/`:exception` pair if it raises.
+Synchronous calls use `:telemetry.span/3`; lazy streams follow the same
+event shape over their full consumption lifecycle.
+
+### Events
+
+| Event                                             | Fired around                                                    |
+|---------------------------------------------------|-----------------------------------------------------------------|
+| `[:codex_wrapper, :exec, :start \| :stop \| :exception]`     | `CodexWrapper.Exec.execute/2`, `CodexWrapper.ExecResume.execute/2` |
+| `[:codex_wrapper, :stream, :start \| :stop \| :exception]`   | `CodexWrapper.Exec.stream/2`, `CodexWrapper.ExecResume.stream/2`, `CodexWrapper.Review.stream/2` |
+| `[:codex_wrapper, :review, :start \| :stop \| :exception]`   | `CodexWrapper.Review.execute/2`                                 |
+| `[:codex_wrapper, :session, :turn, :start \| :stop \| :exception]` | each synchronous `CodexWrapper.Session.send/3` turn (Exec or Resume) |
+
+`execute_json/2` delegates to its corresponding `execute/2` path, so it
+emits the same exec or review event rather than an additional
+JSON-specific event.
+
+Stream `:start` fires when the returned enumerable is first reduced, not
+when it is constructed. `:stop` fires after the producer is exhausted or
+the consumer halts early, after producer cleanup has run.
+
+### Metadata
+
+Start metadata (all events):
+
+- `:command` -- atom identifying the command path (`:exec`,
+  `:exec_resume`, `:review`, `:session_exec`, or `:session_resume`)
+- `:session_id` -- session identifier when present
+- `:sandbox_mode` -- sandbox mode atom (`:read_only`, `:workspace_write`,
+  `:danger_full_access`) or `nil`
+- `:approval_policy` -- approval policy atom (`:untrusted`, `:on_request`,
+  `:never`) or `nil`
+
+Stop metadata adds:
+
+- `:exit_code` -- non-negative integer from the subprocess when a
+  synchronous call resolves to a `%CodexWrapper.Result{}`. Streaming
+  events omit it because the Runner stream contract does not expose the
+  subprocess exit code.
+
+Exception metadata adds the standard `:kind`, `:reason`, and
+`:stacktrace` fields.
+
+### Attaching a handler
+
+```elixir
+:telemetry.attach_many(
+  "codex-wrapper-logger",
+  [
+    [:codex_wrapper, :exec, :stop],
+    [:codex_wrapper, :stream, :stop],
+    [:codex_wrapper, :review, :stop],
+    [:codex_wrapper, :session, :turn, :stop]
+  ],
+  fn event, measurements, metadata, _config ->
+    require Logger
+    Logger.info("#{inspect(event)} duration=#{measurements.duration} meta=#{inspect(metadata)}")
+  end,
+  nil
+)
+```
+
 ## Configuration
 
 ### Config options
@@ -602,7 +669,7 @@ streams.
 | `:model` | `String.t()` | Model name (e.g., `"o3"`, `"o4-mini"`) |
 | `:profile` | `String.t()` | Named config profile (`--profile`) |
 | `:sandbox` | atom | `:read_only`, `:workspace_write`, or `:danger_full_access` |
-| `:approval_policy` | atom | `:untrusted`, `:on_failure`, `:on_request`, or `:never` |
+| `:approval_policy` | atom | `:untrusted`, `:on_request`, or `:never` |
 | `:full_auto` | `boolean()` | Enable full-auto mode |
 | `:cd` | `String.t()` | Working directory for codex subprocess |
 | `:skip_git_repo_check` | `boolean()` | Skip git repository check |
@@ -634,6 +701,7 @@ streams.
 | `CodexWrapper.SessionServer` | GenServer wrapper for sessions |
 | `CodexWrapper.Retry` | Exponential backoff retry |
 | `CodexWrapper.IEx` | Interactive REPL helpers |
+| `CodexWrapper.Telemetry` | `:telemetry` span wrappers for exec paths |
 | `CodexWrapper.Command` | Behaviour for CLI commands |
 | `CodexWrapper.Runner` | Behaviour selecting how subprocesses execute and stream |
 | `CodexWrapper.Runner.Port` | Default runner (`/bin/sh` Port with closed stdin) |
@@ -643,7 +711,6 @@ streams.
 | `CodexWrapper.Commands.Mcp` | MCP server CRUD |
 | `CodexWrapper.Commands.McpServer` | Run Codex as an MCP server |
 | `CodexWrapper.Commands.Sandbox` | Sandboxed command execution |
-| `CodexWrapper.Commands.Fork` | Session forking |
 | `CodexWrapper.Commands.Apply` | Apply diffs from task IDs |
 | `CodexWrapper.Commands.Archive` | Archive, unarchive, and delete saved sessions |
 | `CodexWrapper.Commands.Completion` | Shell completion script generation |

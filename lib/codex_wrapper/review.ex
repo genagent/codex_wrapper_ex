@@ -34,7 +34,7 @@ defmodule CodexWrapper.Review do
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Runner}
+  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Runner, Telemetry}
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
 
@@ -222,7 +222,9 @@ defmodule CodexWrapper.Review do
   """
   @spec execute(t(), Config.t()) :: {:ok, Result.t()} | {:error, term()}
   def execute(%__MODULE__{} = review, %Config{} = config) do
-    Command.run(__MODULE__, review, config)
+    Telemetry.span([:codex_wrapper, :review], Telemetry.review_metadata(:review, review), fn ->
+      Command.run(__MODULE__, review, config)
+    end)
   end
 
   @doc """
@@ -250,11 +252,18 @@ defmodule CodexWrapper.Review do
   @spec stream(t(), Config.t()) :: Enumerable.t()
   def stream(%__MODULE__{} = review, %Config{} = config) do
     review = %{review | json: true}
-    args = Config.base_args(config) ++ args(review)
 
-    config.binary
-    |> Runner.stream_lines(args, Config.stream_opts(config), config.timeout)
-    |> JsonLineEvent.parse_stream()
+    Telemetry.span_stream(
+      [:codex_wrapper, :stream],
+      Telemetry.review_metadata(:review, review),
+      fn ->
+        args = Config.base_args(config) ++ args(review)
+
+        config.binary
+        |> Runner.stream_lines(args, Config.stream_opts(config), config.timeout)
+        |> JsonLineEvent.parse_stream()
+      end
+    )
   end
 
   # --- Command behaviour ---

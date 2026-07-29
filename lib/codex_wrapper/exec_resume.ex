@@ -25,7 +25,7 @@ defmodule CodexWrapper.ExecResume do
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Runner}
+  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Runner, Telemetry}
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
 
@@ -207,7 +207,13 @@ defmodule CodexWrapper.ExecResume do
   """
   @spec execute(t(), Config.t()) :: {:ok, Result.t()} | {:error, term()}
   def execute(%__MODULE__{} = exec, %Config{} = config) do
-    Command.run(__MODULE__, exec, config)
+    Telemetry.span(
+      [:codex_wrapper, :exec],
+      Telemetry.exec_metadata(:exec_resume, exec),
+      fn ->
+        Command.run(__MODULE__, exec, config)
+      end
+    )
   end
 
   @doc """
@@ -235,11 +241,18 @@ defmodule CodexWrapper.ExecResume do
   @spec stream(t(), Config.t()) :: Enumerable.t()
   def stream(%__MODULE__{} = exec, %Config{} = config) do
     exec = %{exec | json: true}
-    args = Config.base_args(config) ++ args(exec)
 
-    config.binary
-    |> Runner.stream_lines(args, Config.stream_opts(config), config.timeout)
-    |> JsonLineEvent.parse_stream()
+    Telemetry.span_stream(
+      [:codex_wrapper, :stream],
+      Telemetry.exec_metadata(:exec_resume, exec),
+      fn ->
+        args = Config.base_args(config) ++ args(exec)
+
+        config.binary
+        |> Runner.stream_lines(args, Config.stream_opts(config), config.timeout)
+        |> JsonLineEvent.parse_stream()
+      end
+    )
   end
 
   # --- Command behaviour ---
