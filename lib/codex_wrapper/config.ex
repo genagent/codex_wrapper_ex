@@ -82,4 +82,19 @@ defmodule CodexWrapper.Config do
     opts = if config.env != [], do: [{:env, config.env} | opts], else: opts
     opts
   end
+
+  @doc """
+  Build the runner options for a streaming run.
+
+  Same shape as `cmd_opts/1` but with `stderr_to_stdout: false`: the
+  streaming paths parse NDJSON off stdout, and merging stderr into it
+  would put unparseable lines in the stream. Stderr is left to flow to
+  the parent's stderr.
+  """
+  @spec stream_opts(t()) :: keyword()
+  def stream_opts(%__MODULE__{} = config) do
+    config
+    |> cmd_opts()
+    |> Keyword.put(:stderr_to_stdout, false)
+  end
 end

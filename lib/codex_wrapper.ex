@@ -95,13 +95,15 @@ defmodule CodexWrapper do
 
   Exec options (passed to `Exec` builder):
     * `:model` - Model name
+    * `:profile` - Named config profile (`--profile`)
     * `:sandbox` - Sandbox mode atom
-    * `:approval_policy` - Approval policy atom
-    * `:full_auto` - Enable full-auto (boolean)
+    * `:approval_policy` - Approval policy atom (`:untrusted`, `:on_request`, `:never`)
+    * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:cd` - Working directory for codex subprocess
     * `:skip_git_repo_check` - Skip git check (boolean)
-    * `:search` - Enable web search (boolean)
+    * `:search` - Web search: `true` (live), `false`, or a mode atom
+      (`:cached`, `:indexed`, `:live`, `:disabled`)
     * `:ephemeral` - Ephemeral mode (boolean)
     * `:json` - JSON output (boolean)
     * `:output_schema` - Output schema path
@@ -177,10 +179,11 @@ defmodule CodexWrapper do
     * `:commit` - Review a specific commit
     * `:title` - PR/review title
     * `:model` - Model name
-    * `:full_auto` - Enable full-auto (boolean)
+    * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:skip_git_repo_check` - Skip git check (boolean)
     * `:ephemeral` - Ephemeral mode (boolean)
+    * `:output_schema` - Output schema path
     * `:json` - JSON output (boolean)
     * `:output_last_message` - Output last message path
 
@@ -254,6 +257,9 @@ defmodule CodexWrapper do
       {:ephemeral, false}, r ->
         r
 
+      {:output_schema, v}, r ->
+        Review.output_schema(r, v)
+
       {:json, true}, r ->
         Review.json(r)
 
@@ -274,6 +280,9 @@ defmodule CodexWrapper do
     Enum.reduce(opts, exec, fn
       {:model, v}, e ->
         Exec.model(e, v)
+
+      {:profile, v}, e ->
+        Exec.profile(e, v)
 
       {:sandbox, v}, e ->
         Exec.sandbox(e, v)
@@ -307,6 +316,9 @@ defmodule CodexWrapper do
 
       {:search, false}, e ->
         e
+
+      {:search, mode}, e when is_atom(mode) ->
+        Exec.search(e, mode)
 
       {:ephemeral, true}, e ->
         Exec.ephemeral(e)

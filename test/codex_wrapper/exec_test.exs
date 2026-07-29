@@ -12,6 +12,7 @@ defmodule CodexWrapper.ExecTest do
     test "defaults" do
       exec = Exec.new("prompt")
       assert exec.model == nil
+      assert exec.profile == nil
       assert exec.sandbox == nil
       assert exec.approval_policy == nil
       assert exec.full_auto == false
@@ -19,7 +20,7 @@ defmodule CodexWrapper.ExecTest do
       assert exec.cd == nil
       assert exec.skip_git_repo_check == false
       assert exec.add_dirs == []
-      assert exec.search == false
+      assert exec.search == nil
       assert exec.ephemeral == false
       assert exec.output_schema == nil
       assert exec.json == false
@@ -28,6 +29,13 @@ defmodule CodexWrapper.ExecTest do
       assert exec.config_overrides == []
       assert exec.enabled_features == []
       assert exec.disabled_features == []
+      assert exec.strict_config == false
+      assert exec.ignore_user_config == false
+      assert exec.ignore_rules == false
+      assert exec.dangerously_bypass_hook_trust == false
+      assert exec.color == nil
+      assert exec.oss == false
+      assert exec.local_provider == nil
     end
   end
 
@@ -35,6 +43,11 @@ defmodule CodexWrapper.ExecTest do
     test "model/2" do
       exec = Exec.new("p") |> Exec.model("o3")
       assert exec.model == "o3"
+    end
+
+    test "profile/2" do
+      exec = Exec.new("p") |> Exec.profile("fast")
+      assert exec.profile == "fast"
     end
 
     test "sandbox/2" do
@@ -45,6 +58,12 @@ defmodule CodexWrapper.ExecTest do
     test "approval_policy/2" do
       exec = Exec.new("p") |> Exec.approval_policy(:on_request)
       assert exec.approval_policy == :on_request
+    end
+
+    test "approval_policy/2 rejects the removed :on_failure policy" do
+      assert_raise ArgumentError, ~r/no longer a valid approval policy/, fn ->
+        Exec.new("p") |> Exec.approval_policy(:on_failure)
+      end
     end
 
     test "full_auto/1" do
@@ -72,9 +91,14 @@ defmodule CodexWrapper.ExecTest do
       assert exec.add_dirs == ["/a", "/b"]
     end
 
-    test "search/1" do
+    test "search/1 defaults to live" do
       exec = Exec.new("p") |> Exec.search()
-      assert exec.search == true
+      assert exec.search == :live
+    end
+
+    test "search/2 sets the mode" do
+      assert (Exec.new("p") |> Exec.search(:cached)).search == :cached
+      assert (Exec.new("p") |> Exec.search(:disabled)).search == :disabled
     end
 
     test "ephemeral/1" do
@@ -137,17 +161,32 @@ defmodule CodexWrapper.ExecTest do
 
       assert args == [
                "exec",
+               "-c",
+               ~s(approval_policy="on-request"),
                "--model",
                "gpt-5",
                "--sandbox",
                "workspace-write",
-               "--ask-for-approval",
-               "on-request",
                "--skip-git-repo-check",
                "--ephemeral",
                "--json",
                "fix the test"
              ]
+    end
+
+    test "profile emits --profile after --model" do
+      args =
+        Exec.new("prompt")
+        |> Exec.model("o3")
+        |> Exec.profile("fast")
+        |> Exec.args()
+
+      assert args == ["exec", "--model", "o3", "--profile", "fast", "prompt"]
+    end
+
+    test "profile is omitted when unset" do
+      args = Exec.new("prompt") |> Exec.model("o3") |> Exec.args()
+      refute "--profile" in args
     end
 
     test "config overrides come first" do
@@ -184,12 +223,63 @@ defmodule CodexWrapper.ExecTest do
         Exec.new("prompt")
         |> Exec.full_auto()
         |> Exec.dangerously_bypass_approvals_and_sandbox()
+        |> Exec.args()
+
+      refute "--full-auto" in args
+      assert "--sandbox" in args
+      assert "workspace-write" in args
+      assert "--dangerously-bypass-approvals-and-sandbox" in args
+    end
+
+    test "search/1 emits the web_search config key set to live" do
+      args = Exec.new("p") |> Exec.search() |> Exec.args()
+      assert args == ["exec", "-c", ~s(web_search="live"), "p"]
+    end
+
+    test "search/2 emits each web search mode" do
+      for {mode, value} <- [
+            {:cached, "cached"},
+            {:indexed, "indexed"},
+            {:live, "live"},
+            {:disabled, "disabled"}
+          ] do
+        args = Exec.new("p") |> Exec.search(mode) |> Exec.args()
+        idx = Enum.find_index(args, &(&1 == "-c"))
+        assert Enum.at(args, idx + 1) == ~s(web_search="#{value}")
+      end
+    end
+
+    test "the removed --search flag is never emitted" do
+      args = Exec.new("p") |> Exec.search() |> Exec.args()
+      refute "--search" in args
+    end
+
+    test "no web_search override when search is unset" do
+      args = Exec.new("p") |> Exec.args()
+      refute "-c" in args
+      refute Enum.any?(args, &String.starts_with?(&1, "web_search="))
+    end
+
+    test "user config overrides precede the web_search override" do
+      args =
+        Exec.new("p")
+        |> Exec.config(~s(model_reasoning_effort="high"))
         |> Exec.search()
         |> Exec.args()
 
-      assert "--full-auto" in args
-      assert "--dangerously-bypass-approvals-and-sandbox" in args
-      assert "--search" in args
+      assert args == [
+               "exec",
+               "-c",
+               ~s(model_reasoning_effort="high"),
+               "-c",
+               ~s(web_search="live"),
+               "p"
+             ]
+    end
+
+    test "an explicit web_search config override is left alone" do
+      args = Exec.new("p") |> Exec.config(~s(web_search="cached")) |> Exec.args()
+      assert args == ["exec", "-c", ~s(web_search="cached"), "p"]
     end
 
     test "sandbox modes" do
@@ -204,14 +294,53 @@ defmodule CodexWrapper.ExecTest do
       assert Enum.at(args, idx + 1) == "danger-full-access"
     end
 
-    test "approval policies" do
-      args = Exec.new("p") |> Exec.approval_policy(:untrusted) |> Exec.args()
-      idx = Enum.find_index(args, &(&1 == "--ask-for-approval"))
-      assert Enum.at(args, idx + 1) == "untrusted"
+    test "approval policies emit the approval_policy config key" do
+      for {policy, value} <- [
+            {:untrusted, "untrusted"},
+            {:on_request, "on-request"},
+            {:never, "never"}
+          ] do
+        args = Exec.new("p") |> Exec.approval_policy(policy) |> Exec.args()
+        idx = Enum.find_index(args, &(&1 == "-c"))
+        assert Enum.at(args, idx + 1) == ~s(approval_policy="#{value}")
+      end
+    end
 
+    test "the removed --ask-for-approval flag is never emitted" do
       args = Exec.new("p") |> Exec.approval_policy(:never) |> Exec.args()
-      idx = Enum.find_index(args, &(&1 == "--ask-for-approval"))
-      assert Enum.at(args, idx + 1) == "never"
+      refute "--ask-for-approval" in args
+    end
+
+    test "no approval_policy override when unset" do
+      args = Exec.new("p") |> Exec.args()
+      refute "-c" in args
+      refute Enum.any?(args, &String.starts_with?(&1, "approval_policy="))
+    end
+
+    test "user config overrides precede the approval_policy override" do
+      args =
+        Exec.new("p")
+        |> Exec.config("model_reasoning_effort=\"high\"")
+        |> Exec.approval_policy(:never)
+        |> Exec.args()
+
+      assert args == [
+               "exec",
+               "-c",
+               ~s(model_reasoning_effort="high"),
+               "-c",
+               ~s(approval_policy="never"),
+               "p"
+             ]
+    end
+
+    test "an explicit approval_policy config override is left alone" do
+      args =
+        Exec.new("p")
+        |> Exec.config(~s(approval_policy="untrusted"))
+        |> Exec.args()
+
+      assert args == ["exec", "-c", ~s(approval_policy="untrusted"), "p"]
     end
 
     test "prompt is always last" do
@@ -238,6 +367,118 @@ defmodule CodexWrapper.ExecTest do
       assert result.stdout == "error\n"
       assert result.exit_code == 1
       assert result.success == false
+    end
+  end
+
+  describe "full_auto translation" do
+    test "full_auto translates to --sandbox workspace-write" do
+      args = Exec.new("p") |> Exec.full_auto() |> Exec.args()
+      idx = Enum.find_index(args, &(&1 == "--sandbox"))
+      assert Enum.at(args, idx + 1) == "workspace-write"
+      refute "--full-auto" in args
+    end
+
+    test "an explicit sandbox wins over full_auto" do
+      args = Exec.new("p") |> Exec.full_auto() |> Exec.sandbox(:read_only) |> Exec.args()
+      idx = Enum.find_index(args, &(&1 == "--sandbox"))
+      assert Enum.at(args, idx + 1) == "read-only"
+      refute "workspace-write" in args
+    end
+
+    test "no --sandbox when neither is set" do
+      args = Exec.new("p") |> Exec.args()
+      refute "--sandbox" in args
+    end
+  end
+
+  describe "config and trust flags" do
+    test "strict_config/1" do
+      exec = Exec.new("p") |> Exec.strict_config()
+      assert exec.strict_config == true
+      assert "--strict-config" in Exec.args(exec)
+    end
+
+    test "ignore_user_config/1" do
+      exec = Exec.new("p") |> Exec.ignore_user_config()
+      assert exec.ignore_user_config == true
+      assert "--ignore-user-config" in Exec.args(exec)
+    end
+
+    test "ignore_rules/1" do
+      exec = Exec.new("p") |> Exec.ignore_rules()
+      assert exec.ignore_rules == true
+      assert "--ignore-rules" in Exec.args(exec)
+    end
+
+    test "dangerously_bypass_hook_trust/1" do
+      exec = Exec.new("p") |> Exec.dangerously_bypass_hook_trust()
+      assert exec.dangerously_bypass_hook_trust == true
+      assert "--dangerously-bypass-hook-trust" in Exec.args(exec)
+    end
+
+    test "the config-isolation pair composes" do
+      args =
+        Exec.new("p")
+        |> Exec.ignore_user_config()
+        |> Exec.strict_config()
+        |> Exec.config(~s(model="o3"))
+        |> Exec.args()
+
+      assert "--ignore-user-config" in args
+      assert "--strict-config" in args
+      assert ~s(model="o3") in args
+    end
+
+    test "none of the flags are emitted when unset" do
+      args = Exec.new("p") |> Exec.args()
+
+      refute "--strict-config" in args
+      refute "--ignore-user-config" in args
+      refute "--ignore-rules" in args
+      refute "--dangerously-bypass-hook-trust" in args
+    end
+
+    test "hook trust is independent of the approvals-and-sandbox bypass" do
+      args = Exec.new("p") |> Exec.dangerously_bypass_hook_trust() |> Exec.args()
+
+      assert "--dangerously-bypass-hook-trust" in args
+      refute "--dangerously-bypass-approvals-and-sandbox" in args
+    end
+  end
+
+  describe "color and provider options" do
+    test "color/2 accepts each mode" do
+      for {mode, flag} <- [always: "always", never: "never", auto: "auto"] do
+        args = Exec.new("p") |> Exec.color(mode) |> Exec.args()
+        idx = Enum.find_index(args, &(&1 == "--color"))
+        assert Enum.at(args, idx + 1) == flag
+      end
+    end
+
+    test "color/2 rejects an unknown mode" do
+      assert_raise FunctionClauseError, fn ->
+        Exec.new("p") |> Exec.color(:sometimes)
+      end
+    end
+
+    test "oss/1" do
+      exec = Exec.new("p") |> Exec.oss()
+      assert exec.oss == true
+      assert "--oss" in Exec.args(exec)
+    end
+
+    test "local_provider/2" do
+      args = Exec.new("p") |> Exec.oss() |> Exec.local_provider("ollama") |> Exec.args()
+      idx = Enum.find_index(args, &(&1 == "--local-provider"))
+      assert Enum.at(args, idx + 1) == "ollama"
+    end
+
+    test "neither is emitted when unset" do
+      args = Exec.new("p") |> Exec.args()
+
+      refute "--color" in args
+      refute "--oss" in args
+      refute "--local-provider" in args
     end
   end
 end

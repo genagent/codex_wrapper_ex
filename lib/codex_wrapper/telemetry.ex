@@ -1,55 +1,152 @@
+defmodule CodexWrapper.Telemetry.Stream do
+  @moduledoc false
+
+  @enforce_keys [:event_prefix, :metadata, :stream_fun]
+  defstruct [:event_prefix, :metadata, :stream_fun]
+
+  @type t :: %__MODULE__{
+          event_prefix: [atom(), ...],
+          metadata: map(),
+          stream_fun: (-> Enumerable.t())
+        }
+
+  @doc false
+  @spec reduce(t(), term(), (term(), term() -> term())) :: term()
+  def reduce(%__MODULE__{} = stream, accumulator, reducer) do
+    started_at = System.monotonic_time()
+
+    :telemetry.execute(
+      stream.event_prefix ++ [:start],
+      %{monotonic_time: started_at, system_time: System.system_time()},
+      stream.metadata
+    )
+
+    continuation = fn next_accumulator ->
+      stream.stream_fun.()
+      |> Enumerable.reduce(next_accumulator, reducer)
+    end
+
+    continue(
+      continuation,
+      accumulator,
+      stream.event_prefix,
+      stream.metadata,
+      started_at
+    )
+  end
+
+  defp continue(continuation, accumulator, event_prefix, metadata, started_at) do
+    case continuation.(accumulator) do
+      {:done, _value} = result ->
+        emit_stop(event_prefix, metadata, started_at)
+        result
+
+      {:halted, _value} = result ->
+        emit_stop(event_prefix, metadata, started_at)
+        result
+
+      {:suspended, value, next_continuation} ->
+        wrapped_continuation = fn next_accumulator ->
+          continue(next_continuation, next_accumulator, event_prefix, metadata, started_at)
+        end
+
+        {:suspended, value, wrapped_continuation}
+    end
+  catch
+    kind, reason ->
+      stacktrace = __STACKTRACE__
+      emit_exception(event_prefix, metadata, started_at, kind, reason, stacktrace)
+      :erlang.raise(kind, reason, stacktrace)
+  end
+
+  defp emit_stop(event_prefix, metadata, started_at) do
+    stopped_at = System.monotonic_time()
+
+    :telemetry.execute(
+      event_prefix ++ [:stop],
+      %{monotonic_time: stopped_at, duration: stopped_at - started_at},
+      metadata
+    )
+  end
+
+  defp emit_exception(event_prefix, metadata, started_at, kind, reason, stacktrace) do
+    stopped_at = System.monotonic_time()
+
+    exception_metadata =
+      metadata
+      |> Map.put(:kind, kind)
+      |> Map.put(:reason, reason)
+      |> Map.put(:stacktrace, stacktrace)
+
+    :telemetry.execute(
+      event_prefix ++ [:exception],
+      %{monotonic_time: stopped_at, duration: stopped_at - started_at},
+      exception_metadata
+    )
+  end
+end
+
+defimpl Enumerable, for: CodexWrapper.Telemetry.Stream do
+  alias CodexWrapper.Telemetry.Stream
+
+  @spec reduce(Stream.t(), term(), (term(), term() -> term())) :: term()
+  def reduce(stream, accumulator, reducer), do: Stream.reduce(stream, accumulator, reducer)
+
+  def count(_stream), do: {:error, __MODULE__}
+  def member?(_stream, _value), do: {:error, __MODULE__}
+  def slice(_stream), do: {:error, __MODULE__}
+end
+
 defmodule CodexWrapper.Telemetry do
   @moduledoc """
-  Telemetry instrumentation for the Codex CLI wrapper.
+  `:telemetry` events emitted by CodexWrapper.
 
-  Emits `:telemetry` span events (`:start`, `:stop`, `:exception`) around
-  the core exec paths so host applications can observe durations, metadata,
-  and failures without re-implementing instrumentation.
+  The synchronous command and session events use `:telemetry.span/3`.
+  Streaming events follow the same start/stop/exception convention while
+  keeping the span open for the lifetime of lazy enumeration.
 
   ## Events
 
-    * `[:codex_wrapper, :exec, :start | :stop | :exception]`
-      -- emitted around `CodexWrapper.Exec.execute/2` and
-      `CodexWrapper.Exec.execute_json/2`.
-    * `[:codex_wrapper, :stream, :start | :stop | :exception]`
-      -- emitted around the port setup for `CodexWrapper.Exec.stream/2`
-      and `CodexWrapper.ExecResume.stream/2`.
-    * `[:codex_wrapper, :review, :start | :stop | :exception]`
-      -- emitted around `CodexWrapper.Review.execute/2` and
-      `CodexWrapper.Review.execute_json/2`.
-    * `[:codex_wrapper, :session, :turn, :start | :stop | :exception]`
-      -- emitted around each `CodexWrapper.Session.send/3` turn (wraps
-      Exec, ExecResume, and Fork dispatch).
+    * `[:codex_wrapper, :exec, :start | :stop | :exception]` — emitted
+      around `CodexWrapper.Exec.execute/2` and
+      `CodexWrapper.ExecResume.execute/2`.
+    * `[:codex_wrapper, :stream, :start | :stop | :exception]` — emitted
+      while consuming streams returned by `CodexWrapper.Exec.stream/2`,
+      `CodexWrapper.ExecResume.stream/2`, and
+      `CodexWrapper.Review.stream/2`. Start is emitted on first reduction;
+      stop is emitted on producer exhaustion or an early consumer halt.
+    * `[:codex_wrapper, :review, :start | :stop | :exception]` — emitted
+      around `CodexWrapper.Review.execute/2`.
+    * `[:codex_wrapper, :session, :turn, :start | :stop | :exception]` —
+      emitted around each synchronous `CodexWrapper.Session.send/3` turn.
+
+  `execute_json/2` uses the corresponding `execute/2` path and therefore
+  emits the same exec or review event rather than a second JSON-specific
+  event.
 
   ## Measurements
 
-  Standard span measurements emitted by `:telemetry.span/3`:
-
-    * `:start` -- `%{monotonic_time: integer(), system_time: integer()}`
-    * `:stop` -- `%{monotonic_time: integer(), duration: integer()}`
-    * `:exception` -- `%{monotonic_time: integer(), duration: integer()}`
+    * `:start` — `%{monotonic_time: integer(), system_time: integer()}`
+    * `:stop` — `%{monotonic_time: integer(), duration: integer()}`
+    * `:exception` — `%{monotonic_time: integer(), duration: integer()}`
 
   ## Metadata
 
-  Start metadata includes (when available):
+  Every event includes:
 
-    * `:command` -- atom identifying the command path (e.g. `:exec`,
-      `:exec_json`, `:exec_stream`, `:review`, `:review_json`,
-      `:review_stream`, `:exec_resume_stream`, `:session_exec`,
-      `:session_resume`, `:session_fork`)
-    * `:session_id` -- session identifier when present
-    * `:sandbox_mode` -- sandbox mode atom from the builder
-    * `:approval_policy` -- approval policy atom from the builder
+    * `:command` — one of `:exec`, `:exec_resume`, `:review`,
+      `:session_exec`, or `:session_resume`
+    * `:session_id` — the session identifier when known
+    * `:sandbox_mode` — the configured sandbox mode when present
+    * `:approval_policy` — the configured approval policy when present
 
-  Stop metadata adds:
+  Synchronous stop events additionally include `:exit_code` when the
+  wrapped call returns a `%CodexWrapper.Result{}`. Stream events do not
+  include an exit code because the lazy Runner contract does not expose
+  one. Exception metadata follows the standard span shape with `:kind`,
+  `:reason`, and `:stacktrace`.
 
-    * `:exit_code` -- non-negative integer from the subprocess (when
-      the call resolves to a `%CodexWrapper.Result{}`)
-
-  Exception metadata adds the `:kind`, `:reason`, and `:stacktrace`
-  fields populated by `:telemetry.span/3`.
-
-  ## Attaching a handler
+  ## Example
 
       :telemetry.attach_many(
         "codex-wrapper-logger",
@@ -60,27 +157,28 @@ defmodule CodexWrapper.Telemetry do
           [:codex_wrapper, :session, :turn, :stop]
         ],
         fn event, measurements, metadata, _config ->
-          IO.inspect({event, measurements, metadata})
+          require Logger
+
+          Logger.info(
+            "\#{inspect(event)} duration=\#{measurements.duration} " <>
+              "metadata=\#{inspect(metadata)}"
+          )
         end,
         nil
       )
   """
 
+  alias CodexWrapper.Result
+  alias CodexWrapper.Telemetry.Stream, as: TelemetryStream
+
   @type event_name :: [atom(), ...]
-  @type metadata :: map()
+  @type metadata :: %{optional(atom()) => term()}
 
   @doc """
-  Wrap a function call with a `:telemetry.span/3` using the given event
-  prefix and metadata.
+  Run a synchronous function inside a telemetry span.
 
-  The wrapped function must return either:
-
-    * `{:ok, %CodexWrapper.Result{}}` -- `exit_code` is added to stop metadata
-    * `{:ok, term()}` or `{:error, term()}` -- no `exit_code` derived
-    * any other term -- passed through
-
-  The telemetry span returns the function's result untouched, so callers
-  can wrap existing code paths without changing semantics.
+  The function's return value is preserved. When it contains a
+  `%CodexWrapper.Result{}`, its exit code is added to stop metadata.
   """
   @spec span(event_name(), metadata(), (-> result)) :: result when result: var
   def span(event_prefix, start_metadata, fun)
@@ -92,13 +190,50 @@ defmodule CodexWrapper.Telemetry do
   end
 
   @doc """
-  Build start metadata for an Exec-style builder (Exec, ExecResume, Fork).
+  Instrument the full lifecycle of a lazy enumerable.
 
-  Extracts the common fields -- `command`, `session_id` (when present),
-  `sandbox_mode`, and `approval_policy` -- from the builder struct.
+  No event is emitted and `stream_fun` is not called until the returned
+  enumerable is first reduced. The stop event is emitted after the producer
+  finishes or the consumer halts it. Producer and consumer exceptions emit
+  an exception event and are re-raised without a stop event.
+  """
+  @spec span_stream(event_name(), metadata(), (-> Enumerable.t())) :: Enumerable.t()
+  def span_stream(event_prefix, start_metadata, stream_fun)
+      when is_list(event_prefix) and is_map(start_metadata) and is_function(stream_fun, 0) do
+    %TelemetryStream{
+      event_prefix: event_prefix,
+      metadata: start_metadata,
+      stream_fun: stream_fun
+    }
+  end
+
+  @doc """
+  Build metadata for an Exec or ExecResume command.
   """
   @spec exec_metadata(atom(), struct()) :: metadata()
   def exec_metadata(command, %{} = builder) when is_atom(command) do
+    command_metadata(command, builder)
+  end
+
+  @doc """
+  Build metadata for a Review command.
+  """
+  @spec review_metadata(atom(), struct()) :: metadata()
+  def review_metadata(command, %{} = builder) when is_atom(command) do
+    command_metadata(command, builder)
+  end
+
+  @doc """
+  Build metadata for a session turn.
+  """
+  @spec session_turn_metadata(atom(), struct(), String.t() | nil) :: metadata()
+  def session_turn_metadata(command, %{} = builder, session_id) when is_atom(command) do
+    command
+    |> command_metadata(builder)
+    |> Map.put(:session_id, session_id || Map.get(builder, :session_id))
+  end
+
+  defp command_metadata(command, builder) do
     %{
       command: command,
       session_id: Map.get(builder, :session_id),
@@ -107,44 +242,11 @@ defmodule CodexWrapper.Telemetry do
     }
   end
 
-  @doc """
-  Build start metadata for a Review command.
-
-  Review has no sandbox or approval policy of its own, so those fields
-  are `nil`.
-  """
-  @spec review_metadata(atom(), struct()) :: metadata()
-  def review_metadata(command, %{}) when is_atom(command) do
-    %{
-      command: command,
-      session_id: nil,
-      sandbox_mode: nil,
-      approval_policy: nil
-    }
-  end
-
-  @doc """
-  Build start metadata for a session turn.
-
-  `command` is one of `:session_exec`, `:session_resume`, or `:session_fork`.
-  """
-  @spec session_turn_metadata(atom(), struct(), String.t() | nil) :: metadata()
-  def session_turn_metadata(command, %{} = builder, session_id) when is_atom(command) do
-    %{
-      command: command,
-      session_id: session_id || Map.get(builder, :session_id),
-      sandbox_mode: Map.get(builder, :sandbox),
-      approval_policy: Map.get(builder, :approval_policy)
-    }
-  end
-
-  # --- Private ---
-
-  defp stop_metadata(start_metadata, {:ok, %CodexWrapper.Result{exit_code: code}}) do
+  defp stop_metadata(start_metadata, {:ok, %Result{exit_code: code}}) do
     Map.put(start_metadata, :exit_code, code)
   end
 
-  defp stop_metadata(start_metadata, {:ok, %CodexWrapper.Result{exit_code: code}, _extra}) do
+  defp stop_metadata(start_metadata, {:ok, %Result{exit_code: code}, _extra}) do
     Map.put(start_metadata, :exit_code, code)
   end
 

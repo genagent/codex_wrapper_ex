@@ -24,11 +24,19 @@ defmodule CodexWrapper.Review do
       CodexWrapper.Review.new()
       |> CodexWrapper.Review.commit("abc123")
       |> CodexWrapper.Review.execute(config)
+
+      # Ask for structured review output
+      CodexWrapper.Review.new()
+      |> CodexWrapper.Review.uncommitted()
+      |> CodexWrapper.Review.output_schema("/path/to/schema.json")
+      |> CodexWrapper.Review.execute(config)
   """
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Telemetry}
+  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Runner, Telemetry}
+
+  @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
 
   @type t :: %__MODULE__{
           prompt: String.t() | nil,
@@ -37,15 +45,21 @@ defmodule CodexWrapper.Review do
           commit: String.t() | nil,
           title: String.t() | nil,
           model: String.t() | nil,
+          sandbox: sandbox_mode() | nil,
           full_auto: boolean(),
           dangerously_bypass_approvals_and_sandbox: boolean(),
+          dangerously_bypass_hook_trust: boolean(),
           skip_git_repo_check: boolean(),
           ephemeral: boolean(),
+          output_schema: String.t() | nil,
           json: boolean(),
           output_last_message: String.t() | nil,
           config_overrides: [String.t()],
           enabled_features: [String.t()],
-          disabled_features: [String.t()]
+          disabled_features: [String.t()],
+          strict_config: boolean(),
+          ignore_user_config: boolean(),
+          ignore_rules: boolean()
         }
 
   defstruct [
@@ -54,16 +68,22 @@ defmodule CodexWrapper.Review do
     :commit,
     :title,
     :model,
+    :output_schema,
     :output_last_message,
+    :sandbox,
     uncommitted: false,
     full_auto: false,
     dangerously_bypass_approvals_and_sandbox: false,
+    dangerously_bypass_hook_trust: false,
     skip_git_repo_check: false,
     ephemeral: false,
     json: false,
     config_overrides: [],
     enabled_features: [],
-    disabled_features: []
+    disabled_features: [],
+    strict_config: false,
+    ignore_user_config: false,
+    ignore_rules: false
   ]
 
   # --- Constructor ---
@@ -100,7 +120,25 @@ defmodule CodexWrapper.Review do
   @spec model(t(), String.t()) :: t()
   def model(%__MODULE__{} = r, model), do: %{r | model: model}
 
-  @doc "Enable full-auto mode."
+  @doc """
+  Set the sandbox mode.
+
+  Emits `-c sandbox_mode="<mode>"` rather than `--sandbox <mode>`: the
+  flag is accepted by `codex exec` only, and `codex exec review` rejects
+  it with `unexpected argument`. The config key is the supported
+  equivalent and takes the same three values.
+  """
+  @spec sandbox(t(), sandbox_mode()) :: t()
+  def sandbox(%__MODULE__{} = r, mode), do: %{r | sandbox: mode}
+
+  @doc """
+  Enable full-auto mode.
+
+  Deprecated upstream. Emits `-c sandbox_mode="workspace-write"`, the
+  config-key form of what the Codex CLI now tells you to use in place of
+  `--full-auto`. An explicit `sandbox/2` call is more specific and wins
+  over this.
+  """
   @spec full_auto(t()) :: t()
   def full_auto(%__MODULE__{} = r), do: %{r | full_auto: true}
 
@@ -109,6 +147,40 @@ defmodule CodexWrapper.Review do
   def dangerously_bypass_approvals_and_sandbox(%__MODULE__{} = r),
     do: %{r | dangerously_bypass_approvals_and_sandbox: true}
 
+  @doc """
+  Run enabled hooks without requiring persisted hook trust. Use with extreme caution.
+
+  Hook trust is what stops a repository from running arbitrary commands
+  the user never approved. Only appropriate for automation that already
+  vets where its hooks come from.
+  """
+  @spec dangerously_bypass_hook_trust(t()) :: t()
+  def dangerously_bypass_hook_trust(%__MODULE__{} = r),
+    do: %{r | dangerously_bypass_hook_trust: true}
+
+  @doc """
+  Error out when `config.toml` contains fields this Codex version does not recognize.
+
+  Turns a silently-ignored typo in a config file into a failed run, which
+  is usually what a programmatic caller wants.
+  """
+  @spec strict_config(t()) :: t()
+  def strict_config(%__MODULE__{} = r), do: %{r | strict_config: true}
+
+  @doc """
+  Do not load `$CODEX_HOME/config.toml`.
+
+  Auth still resolves through `CODEX_HOME`; only the config file is
+  skipped. Pair with `config/2` overrides for a run that does not pick up
+  the developer's personal settings.
+  """
+  @spec ignore_user_config(t()) :: t()
+  def ignore_user_config(%__MODULE__{} = r), do: %{r | ignore_user_config: true}
+
+  @doc "Do not load user or project execpolicy `.rules` files."
+  @spec ignore_rules(t()) :: t()
+  def ignore_rules(%__MODULE__{} = r), do: %{r | ignore_rules: true}
+
   @doc "Skip the git repo check."
   @spec skip_git_repo_check(t()) :: t()
   def skip_git_repo_check(%__MODULE__{} = r), do: %{r | skip_git_repo_check: true}
@@ -116,6 +188,10 @@ defmodule CodexWrapper.Review do
   @doc "Enable ephemeral mode (no session persistence)."
   @spec ephemeral(t()) :: t()
   def ephemeral(%__MODULE__{} = r), do: %{r | ephemeral: true}
+
+  @doc "Set the output schema path."
+  @spec output_schema(t(), String.t()) :: t()
+  def output_schema(%__MODULE__{} = r, path), do: %{r | output_schema: path}
 
   @doc "Enable JSON output."
   @spec json(t()) :: t()
@@ -170,55 +246,22 @@ defmodule CodexWrapper.Review do
   @doc """
   Execute the review command and return a lazy `Stream` of `%JsonLineEvent{}`.
 
-  Uses a Port with `:line` mode to read NDJSON output line-by-line.
-  Forces `--json` on the command.
+  Reads NDJSON output line-by-line through the configured
+  `CodexWrapper.Runner`. Forces `--json` on the command.
   """
   @spec stream(t(), Config.t()) :: Enumerable.t()
   def stream(%__MODULE__{} = review, %Config{} = config) do
     review = %{review | json: true}
 
-    Telemetry.span(
+    Telemetry.span_stream(
       [:codex_wrapper, :stream],
-      Telemetry.review_metadata(:review_stream, review),
+      Telemetry.review_metadata(:review, review),
       fn ->
         args = Config.base_args(config) ++ args(review)
 
-        port_opts =
-          [:binary, :exit_status, {:line, 1_048_576}, {:args, args}] ++
-            port_env_opts(config) ++
-            port_cd_opts(config)
-
-        Stream.resource(
-          fn ->
-            Port.open({:spawn_executable, config.binary}, port_opts)
-          end,
-          fn port ->
-            receive do
-              {^port, {:data, {:eol, line}}} ->
-                case JsonLineEvent.parse(line) do
-                  {:ok, event} -> {[event], port}
-                  {:error, _} -> {[], port}
-                end
-
-              {^port, {:data, {:noeol, _partial}}} ->
-                {[], port}
-
-              {^port, {:exit_status, _code}} ->
-                {:halt, port}
-            after
-              300_000 -> {:halt, port}
-            end
-          end,
-          fn port ->
-            send(port, {self(), :close})
-
-            receive do
-              {^port, :closed} -> :ok
-            after
-              5_000 -> :ok
-            end
-          end
-        )
+        config.binary
+        |> Runner.stream_lines(args, Config.stream_opts(config), config.timeout)
+        |> JsonLineEvent.parse_stream()
       end
     )
   end
@@ -228,21 +271,25 @@ defmodule CodexWrapper.Review do
   @impl Command
   def args(%__MODULE__{} = r) do
     ["exec", "review"]
-    |> add_list("-c", r.config_overrides)
+    |> add_list("-c", config_overrides(r))
     |> add_list("--enable", r.enabled_features)
     |> add_list("--disable", r.disabled_features)
     |> add_bool("--uncommitted", r.uncommitted)
     |> add_opt("--base", r.base)
     |> add_opt("--commit", r.commit)
+    |> add_bool("--strict-config", r.strict_config)
     |> add_opt("--model", r.model)
     |> add_opt("--title", r.title)
-    |> add_bool("--full-auto", r.full_auto)
     |> add_bool(
       "--dangerously-bypass-approvals-and-sandbox",
       r.dangerously_bypass_approvals_and_sandbox
     )
+    |> add_bool("--dangerously-bypass-hook-trust", r.dangerously_bypass_hook_trust)
     |> add_bool("--skip-git-repo-check", r.skip_git_repo_check)
     |> add_bool("--ephemeral", r.ephemeral)
+    |> add_bool("--ignore-user-config", r.ignore_user_config)
+    |> add_bool("--ignore-rules", r.ignore_rules)
+    |> add_opt("--output-schema", r.output_schema)
     |> add_bool("--json", r.json)
     |> add_opt("--output-last-message", r.output_last_message)
     |> add_prompt(r.prompt)
@@ -272,9 +319,30 @@ defmodule CodexWrapper.Review do
 
   # --- Port helpers ---
 
-  defp port_env_opts(%Config{env: []}), do: []
-  defp port_env_opts(%Config{env: env}), do: [{:env, env}]
+  # `--sandbox` is an `exec`-only flag: `exec review` rejects it outright.
+  # `sandbox_mode` is the config key the subcommand does accept, so the
+  # builder option folds into the `-c` overrides rather than dropping.
+  # User-supplied overrides come first, so an explicit `sandbox/2` call
+  # wins on a last-wins CLI.
+  defp config_overrides(%__MODULE__{} = r) do
+    r.config_overrides ++ sandbox_override(r)
+  end
 
-  defp port_cd_opts(%Config{working_dir: nil}), do: []
-  defp port_cd_opts(%Config{working_dir: dir}), do: [{:cd, String.to_charlist(dir)}]
+  defp sandbox_override(%__MODULE__{} = r) do
+    case format_sandbox(effective_sandbox(r)) do
+      nil -> []
+      mode -> [~s(sandbox_mode="#{mode}")]
+    end
+  end
+
+  # `--full-auto` is deprecated upstream ("use --sandbox workspace-write"),
+  # so translate it instead of emitting it. An explicit sandbox/2 call is
+  # the more specific instruction and wins.
+  defp effective_sandbox(%__MODULE__{sandbox: nil, full_auto: true}), do: :workspace_write
+  defp effective_sandbox(%__MODULE__{sandbox: mode}), do: mode
+
+  defp format_sandbox(nil), do: nil
+  defp format_sandbox(:read_only), do: "read-only"
+  defp format_sandbox(:workspace_write), do: "workspace-write"
+  defp format_sandbox(:danger_full_access), do: "danger-full-access"
 end

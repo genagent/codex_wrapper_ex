@@ -20,6 +20,12 @@ defmodule CodexWrapper.SessionTest do
       session = Session.new(config, model: "o3", full_auto: true)
       assert session.exec_opts == [model: "o3", full_auto: true]
     end
+
+    test "with a profile exec opt" do
+      config = Config.new()
+      session = Session.new(config, profile: "fast")
+      assert session.exec_opts == [profile: "fast"]
+    end
   end
 
   describe "resume/3" do
@@ -133,6 +139,34 @@ defmodule CodexWrapper.SessionTest do
 
     test "returns nil for an empty event list" do
       assert Session.extract_session_id([]) == nil
+    end
+  end
+
+  describe "archive/1, unarchive/1, delete/2" do
+    test "archive/1 archives the session id" do
+      session = Session.resume(Config.new(binary: "echo"), "abc-123")
+      assert {:ok, output} = Session.archive(session)
+      assert output =~ "archive abc-123"
+    end
+
+    test "unarchive/1 unarchives the session id" do
+      session = Session.resume(Config.new(binary: "echo"), "abc-123")
+      assert {:ok, output} = Session.unarchive(session)
+      assert output =~ "unarchive abc-123"
+    end
+
+    test "delete/2 requires confirm: true" do
+      session = Session.resume(Config.new(binary: "echo"), "abc-123")
+      assert Session.delete(session) == {:error, :confirmation_required}
+      assert {:ok, output} = Session.delete(session, confirm: true)
+      assert output =~ "delete abc-123"
+    end
+
+    test "all three refuse a session with no id yet" do
+      session = Session.new(Config.new(binary: "false"))
+      assert Session.archive(session) == {:error, :no_session}
+      assert Session.unarchive(session) == {:error, :no_session}
+      assert Session.delete(session, confirm: true) == {:error, :no_session}
     end
   end
 end
