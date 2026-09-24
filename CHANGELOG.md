@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.4.0...v0.5.0) (2026-09-24)
+
+
+### Features
+
+* add a noninteractive exec fork command ([#86](https://github.com/genagent/codex_wrapper_ex/issues/86)) ([01f2674](https://github.com/genagent/codex_wrapper_ex/commit/01f2674b7f34482a9fca10bff6802642bc669e6b))
+
 ## [0.4.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.3.0...v0.4.0) (2026-07-29)
 
 
