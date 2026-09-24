@@ -108,12 +108,13 @@ defmodule CodexWrapper.Telemetry do
   ## Events
 
     * `[:codex_wrapper, :exec, :start | :stop | :exception]` — emitted
-      around `CodexWrapper.Exec.execute/2` and
-      `CodexWrapper.ExecResume.execute/2`.
+      around `CodexWrapper.Exec.execute/2`,
+      `CodexWrapper.ExecResume.execute/2`, and
+      `CodexWrapper.ExecFork.execute/2` (which `ExecFork.fork/2` calls).
     * `[:codex_wrapper, :stream, :start | :stop | :exception]` — emitted
       while consuming streams returned by `CodexWrapper.Exec.stream/2`,
-      `CodexWrapper.ExecResume.stream/2`, and
-      `CodexWrapper.Review.stream/2`. Start is emitted on first reduction;
+      `CodexWrapper.ExecResume.stream/2`, `CodexWrapper.ExecFork.stream/2`,
+      and `CodexWrapper.Review.stream/2`. Start is emitted on first reduction;
       stop is emitted on producer exhaustion or an early consumer halt.
     * `[:codex_wrapper, :review, :start | :stop | :exception]` — emitted
       around `CodexWrapper.Review.execute/2`.
@@ -134,9 +135,10 @@ defmodule CodexWrapper.Telemetry do
 
   Every event includes:
 
-    * `:command` — one of `:exec`, `:exec_resume`, `:review`,
-      `:session_exec`, or `:session_resume`
-    * `:session_id` — the session identifier when known
+    * `:command` — one of `:exec`, `:exec_resume`, `:exec_fork`,
+      `:review`, `:session_exec`, or `:session_resume`
+    * `:session_id` — the session identifier when known; for
+      `:exec_fork` this is the source session being forked
     * `:sandbox_mode` — the configured sandbox mode when present
     * `:approval_policy` — the configured approval policy when present
 
@@ -208,7 +210,7 @@ defmodule CodexWrapper.Telemetry do
   end
 
   @doc """
-  Build metadata for an Exec or ExecResume command.
+  Build metadata for an Exec, ExecResume, or ExecFork command.
   """
   @spec exec_metadata(atom(), struct()) :: metadata()
   def exec_metadata(command, %{} = builder) when is_atom(command) do

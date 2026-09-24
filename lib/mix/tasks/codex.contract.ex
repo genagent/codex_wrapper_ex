@@ -35,7 +35,7 @@ defmodule Mix.Tasks.Codex.Contract do
 
   use Mix.Task
 
-  alias CodexWrapper.{Exec, ExecResume, Review}
+  alias CodexWrapper.{Exec, ExecFork, ExecResume, Review}
 
   @requirements ["app.start"]
 
@@ -45,6 +45,7 @@ defmodule Mix.Tasks.Codex.Contract do
     [
       {"exec", Exec.args(maximal_exec())},
       {"exec resume", ExecResume.args(maximal_exec_resume())},
+      {"exec fork", ExecFork.args(maximal_exec_fork())},
       {"exec review", Review.args(maximal_review())}
     ]
   end
@@ -77,6 +78,26 @@ defmodule Mix.Tasks.Codex.Contract do
     |> ExecResume.ephemeral()
     |> ExecResume.json()
     |> ExecResume.output_last_message("/tmp/last.txt")
+  end
+
+  defp maximal_exec_fork do
+    ExecFork.new("abc-123")
+    |> ExecFork.prompt("branch off")
+    |> ExecFork.model("gpt-5")
+    |> ExecFork.sandbox(:read_only)
+    |> ExecFork.enable("some-feature")
+    |> ExecFork.disable("other-feature")
+    |> ExecFork.image("/tmp/a.png")
+    |> ExecFork.strict_config()
+    |> ExecFork.dangerously_bypass_approvals_and_sandbox()
+    |> ExecFork.dangerously_bypass_hook_trust()
+    |> ExecFork.skip_git_repo_check()
+    |> ExecFork.ephemeral()
+    |> ExecFork.ignore_user_config()
+    |> ExecFork.ignore_rules()
+    |> ExecFork.output_schema("/tmp/schema.json")
+    |> ExecFork.json()
+    |> ExecFork.output_last_message("/tmp/last.txt")
   end
 
   defp maximal_review do

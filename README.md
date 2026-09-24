@@ -27,7 +27,7 @@ to point at it).
 
 ## Codex CLI compatibility
 
-Tested against codex-cli 0.145.0.
+Tested against codex-cli 0.149.0.
 
 The Codex CLI moves quickly and has removed flags between releases, so a
 wrapper release is only known to match the version recorded here. Subcommands
@@ -270,15 +270,46 @@ ExecResume.new()
 
 ### Forking
 
-`CodexWrapper.Commands.Fork` was removed. `codex fork` is an interactive
-TUI command with no non-interactive path -- piping a prompt to it fails
-with `stdin is not a terminal` -- so it cannot be driven from a library.
+`CodexWrapper.ExecFork` wraps `codex exec fork <SESSION_ID> [PROMPT]`. It
+copies a session's history into a new session and runs the optional
+prompt there. The source session is not modified and can still be
+resumed under its original ID.
 
-`ExecResume` is the closest available alternative, but it is **not** a
-fork: it resumes a session in place and adds to that session's history,
-where forking would branch a new session and leave the original
-untouched. There is currently no way to branch a session
-non-interactively.
+```elixir
+alias CodexWrapper.{Config, ExecFork}
+
+config = Config.new()
+
+{:ok, fork} =
+  ExecFork.new("source-session-id")
+  |> ExecFork.prompt("Try the other approach")
+  |> ExecFork.fork(config)
+
+fork.session_id        # the new session, from the CLI's thread.started event
+fork.source_session_id # "source-session-id", unchanged
+```
+
+`fork/2` forces `--json` and returns `{:error, {:exit, code, result}}` on a
+non-zero exit, for example when the source session does not exist.
+`execute/2`, `execute_json/2`, and `stream/2` behave as they do on
+`ExecResume`. The session ID is validated before the CLI is spawned:
+empty IDs, IDs with surrounding whitespace or control characters, and
+IDs starting with `-` return `{:error, {:invalid_session_id, value}}`.
+
+`codex exec fork` accepts the `codex exec resume` flags without `--last`
+and `--all`, plus `--output-schema`. It rejects `--sandbox`, so
+`sandbox/2` emits `-c sandbox_mode="<mode>"` here as well. Verified
+against codex-cli 0.149.0.
+
+A CLI without `exec fork` returns `{:error, {:unsupported, :exec_fork}}`.
+`ExecFork.supported?/1` checks ahead of time by running
+`codex exec fork --help`. `ExecFork.stream/2` has no error tuple to
+return, so on such a CLI enumerating the stream raises
+`CodexWrapper.UnsupportedError` with `capability: :exec_fork`. The check
+only runs when the stream ends without output.
+
+`codex fork`, without `exec`, only runs as an interactive TUI.
+`CodexWrapper.Commands.Fork` wrapped it and was removed.
 
 ## Retry with backoff
 
@@ -528,8 +559,8 @@ event shape over their full consumption lifecycle.
 
 | Event                                             | Fired around                                                    |
 |---------------------------------------------------|-----------------------------------------------------------------|
-| `[:codex_wrapper, :exec, :start \| :stop \| :exception]`     | `CodexWrapper.Exec.execute/2`, `CodexWrapper.ExecResume.execute/2` |
-| `[:codex_wrapper, :stream, :start \| :stop \| :exception]`   | `CodexWrapper.Exec.stream/2`, `CodexWrapper.ExecResume.stream/2`, `CodexWrapper.Review.stream/2` |
+| `[:codex_wrapper, :exec, :start \| :stop \| :exception]`     | `CodexWrapper.Exec.execute/2`, `CodexWrapper.ExecResume.execute/2`, `CodexWrapper.ExecFork.execute/2` |
+| `[:codex_wrapper, :stream, :start \| :stop \| :exception]`   | `CodexWrapper.Exec.stream/2`, `CodexWrapper.ExecResume.stream/2`, `CodexWrapper.ExecFork.stream/2`, `CodexWrapper.Review.stream/2` |
 | `[:codex_wrapper, :review, :start \| :stop \| :exception]`   | `CodexWrapper.Review.execute/2`                                 |
 | `[:codex_wrapper, :session, :turn, :start \| :stop \| :exception]` | each synchronous `CodexWrapper.Session.send/3` turn (Exec or Resume) |
 
@@ -546,8 +577,10 @@ the consumer halts early, after producer cleanup has run.
 Start metadata (all events):
 
 - `:command` -- atom identifying the command path (`:exec`,
-  `:exec_resume`, `:review`, `:session_exec`, or `:session_resume`)
-- `:session_id` -- session identifier when present
+  `:exec_resume`, `:exec_fork`, `:review`, `:session_exec`, or
+  `:session_resume`)
+- `:session_id` -- session identifier when present (for `:exec_fork`,
+  the source session being forked)
 - `:sandbox_mode` -- sandbox mode atom (`:read_only`, `:workspace_write`,
   `:danger_full_access`) or `nil`
 - `:approval_policy` -- approval policy atom (`:untrusted`, `:on_request`,
@@ -694,6 +727,8 @@ streams.
 | `CodexWrapper.Config` | Shared client configuration and binary discovery |
 | `CodexWrapper.Exec` | Exec command builder with fluent API |
 | `CodexWrapper.ExecResume` | Session resume/continue builder |
+| `CodexWrapper.ExecFork` | Non-interactive session fork builder |
+| `CodexWrapper.UnsupportedError` | Raised by a stream when the CLI lacks a capability |
 | `CodexWrapper.Review` | Code review builder |
 | `CodexWrapper.Result` | Parsed command result (stdout, stderr, exit code) |
 | `CodexWrapper.JsonLineEvent` | NDJSON streaming event parser |
