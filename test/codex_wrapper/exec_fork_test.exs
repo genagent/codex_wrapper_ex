@@ -65,12 +65,38 @@ defmodule CodexWrapper.ExecForkTest do
 
   describe "args/1" do
     test "minimal args are the subcommand and the source session id" do
-      assert ExecFork.args(ExecFork.new(@source)) == ["exec", "fork", @source]
+      assert ExecFork.args(ExecFork.new(@source)) == ["exec", "fork", "--", @source]
+    end
+
+    test "an option terminator precedes the positionals" do
+      args = @source |> ExecFork.new() |> ExecFork.json() |> ExecFork.args()
+      assert Enum.take(args, -2) == ["--", @source]
+    end
+
+    test "a prompt beginning with - is passed after the terminator" do
+      args = @source |> ExecFork.new() |> ExecFork.prompt("-x marks the spot") |> ExecFork.args()
+      assert args == ["exec", "fork", "--", @source, "-x marks the spot"]
+    end
+
+    test "a prompt beginning with -- is passed after the terminator" do
+      args =
+        @source
+        |> ExecFork.new()
+        |> ExecFork.json()
+        |> ExecFork.prompt("--help me compare")
+        |> ExecFork.args()
+
+      assert args == ["exec", "fork", "--json", "--", @source, "--help me compare"]
+    end
+
+    test "a prompt that is exactly -- is passed after the terminator" do
+      args = @source |> ExecFork.new() |> ExecFork.prompt("--") |> ExecFork.args()
+      assert args == ["exec", "fork", "--", @source, "--"]
     end
 
     test "prompt follows the session id" do
       args = @source |> ExecFork.new() |> ExecFork.prompt("try again") |> ExecFork.args()
-      assert args == ["exec", "fork", @source, "try again"]
+      assert args == ["exec", "fork", "--", @source, "try again"]
     end
 
     test "every supported option, in order, with positionals last" do
@@ -120,6 +146,7 @@ defmodule CodexWrapper.ExecForkTest do
                "--json",
                "--output-last-message",
                "/tmp/last.txt",
+               "--",
                @source,
                "branch off"
              ]
@@ -146,6 +173,7 @@ defmodule CodexWrapper.ExecForkTest do
                "a.png",
                "--image",
                "b.png",
+               "--",
                @source
              ]
     end
@@ -162,13 +190,13 @@ defmodule CodexWrapper.ExecForkTest do
             danger_full_access: "danger-full-access"
           ] do
         args = @source |> ExecFork.new() |> ExecFork.sandbox(mode) |> ExecFork.args()
-        assert args == ["exec", "fork", "-c", "sandbox_mode=\"#{value}\"", @source]
+        assert args == ["exec", "fork", "-c", "sandbox_mode=\"#{value}\"", "--", @source]
       end
     end
 
     test "full_auto/1 becomes -c sandbox_mode=workspace-write" do
       args = @source |> ExecFork.new() |> ExecFork.full_auto() |> ExecFork.args()
-      assert args == ["exec", "fork", "-c", "sandbox_mode=\"workspace-write\"", @source]
+      assert args == ["exec", "fork", "-c", "sandbox_mode=\"workspace-write\"", "--", @source]
     end
 
     test "an explicit sandbox wins over full_auto" do
@@ -198,6 +226,7 @@ defmodule CodexWrapper.ExecForkTest do
                "sandbox_mode=\"danger-full-access\"",
                "-c",
                "sandbox_mode=\"read-only\"",
+               "--",
                @source
              ]
     end
@@ -276,7 +305,7 @@ defmodule CodexWrapper.ExecForkTest do
       assert exec.session_id == @source
 
       assert_receive {:runner_run, "codex", args, _opts, 1_000}
-      assert args == ["exec", "fork", "--json", @source, "branch"]
+      assert args == ["exec", "fork", "--json", "--", @source, "branch"]
     end
 
     test "fork/2 reports a non-zero exit with the result", %{config: config} do

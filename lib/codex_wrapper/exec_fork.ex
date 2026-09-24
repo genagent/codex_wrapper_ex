@@ -137,7 +137,14 @@ defmodule CodexWrapper.ExecFork do
 
   # --- Builder functions ---
 
-  @doc "Set the prompt to send in the new session after forking."
+  @doc """
+  Set the prompt to send in the new session after forking.
+
+  The prompt is passed after a `--` option terminator, so a prompt that
+  begins with `-` or `--` reaches the CLI as the prompt rather than as a
+  flag. A prompt that is exactly `-` still tells the CLI to read the
+  prompt from stdin.
+  """
   @spec prompt(t(), String.t()) :: t()
   def prompt(%__MODULE__{} = e, prompt), do: %{e | prompt: prompt}
 
@@ -448,8 +455,7 @@ defmodule CodexWrapper.ExecFork do
     |> add_opt("--output-schema", e.output_schema)
     |> add_bool("--json", e.json)
     |> add_opt("--output-last-message", e.output_last_message)
-    |> add_positional(e.session_id)
-    |> add_positional(e.prompt)
+    |> add_positionals([e.session_id, e.prompt])
   end
 
   @impl Command
@@ -457,8 +463,9 @@ defmodule CodexWrapper.ExecFork do
 
   # --- Arg helpers ---
 
-  defp add_positional(args, nil), do: args
-  defp add_positional(args, value), do: args ++ [value]
+  # `--` ends option parsing, so a prompt beginning with `-` or `--` reaches
+  # the CLI as the prompt instead of being parsed as a flag.
+  defp add_positionals(args, values), do: args ++ ["--" | Enum.reject(values, &is_nil/1)]
   defp add_opt(args, _flag, nil), do: args
   defp add_opt(args, flag, value), do: args ++ [flag, value]
   defp add_bool(args, _flag, false), do: args
