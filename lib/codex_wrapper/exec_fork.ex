@@ -37,13 +37,24 @@ defmodule CodexWrapper.ExecFork do
   session ID as an unexpected argument. `execute/2`, `execute_json/2`, and
   `fork/2` recognize that failure and return
   `{:error, {:unsupported, :exec_fork}}`. `supported?/1` checks ahead of
-  time. `stream/2` cannot see the exit status, so on an older CLI its
-  stream ends without events.
+  time. `stream/2` cannot see the exit status or stderr, so when its
+  stream ends without a single line it runs `supported?/1` and raises
+  `CodexWrapper.UnsupportedError` during enumeration if the CLI has no
+  `exec fork`.
   """
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Runner, Session, Telemetry}
+  alias CodexWrapper.{
+    Command,
+    Config,
+    JsonLineEvent,
+    Result,
+    Runner,
+    Session,
+    Telemetry,
+    UnsupportedError
+  }
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
 
@@ -343,6 +354,14 @@ defmodule CodexWrapper.ExecFork do
   Forces `--json`. Raises `ArgumentError` for an invalid session ID,
   since a stream has no error tuple to return. The new session ID is in
   the first `thread.started` event.
+
+  On a CLI without `exec fork`, enumerating the stream raises
+  `CodexWrapper.UnsupportedError` with `capability: :exec_fork`, the
+  stream counterpart of `{:error, {:unsupported, :exec_fork}}`. Only a
+  stream that ends without output pays for the `supported?/1` check; a
+  stream that yields a line, or that the consumer halts early, never
+  runs it. An empty stream from a CLI that does have `exec fork` (for
+  example, an unknown source session) still ends without raising.
   """
   @spec stream(t(), Config.t()) :: Enumerable.t()
   def stream(%__MODULE__{} = exec, %Config{} = config) do
@@ -364,8 +383,31 @@ defmodule CodexWrapper.ExecFork do
 
         config.binary
         |> Runner.stream_lines(args, Config.stream_opts(config), config.timeout)
+        |> raise_if_unsupported(config)
         |> JsonLineEvent.parse_stream()
       end
+    )
+  end
+
+  # An older CLI writes its usage error to stderr, which a stream never
+  # sees, so it shows up as a stream with no lines at all. Only that case
+  # is worth the extra `exec fork --help` spawn. `last_fun` runs when the
+  # producer finishes, not when the consumer halts early.
+  defp raise_if_unsupported(lines, config) do
+    Stream.transform(
+      lines,
+      fn -> false end,
+      fn line, _seen -> {[line], true} end,
+      fn
+        true ->
+          {[], true}
+
+        false ->
+          if supported?(config),
+            do: {[], false},
+            else: raise(UnsupportedError, capability: :exec_fork)
+      end,
+      fn _seen -> :ok end
     )
   end
 

@@ -303,7 +303,10 @@ against codex-cli 0.149.0.
 
 A CLI without `exec fork` returns `{:error, {:unsupported, :exec_fork}}`.
 `ExecFork.supported?/1` checks ahead of time by running
-`codex exec fork --help`.
+`codex exec fork --help`. `ExecFork.stream/2` has no error tuple to
+return, so on such a CLI enumerating the stream raises
+`CodexWrapper.UnsupportedError` with `capability: :exec_fork`. The check
+only runs when the stream ends without output.
 
 `codex fork`, without `exec`, only runs as an interactive TUI.
 `CodexWrapper.Commands.Fork` wrapped it and was removed.
@@ -724,6 +727,8 @@ streams.
 | `CodexWrapper.Config` | Shared client configuration and binary discovery |
 | `CodexWrapper.Exec` | Exec command builder with fluent API |
 | `CodexWrapper.ExecResume` | Session resume/continue builder |
+| `CodexWrapper.ExecFork` | Non-interactive session fork builder |
+| `CodexWrapper.UnsupportedError` | Raised by a stream when the CLI lacks a capability |
 | `CodexWrapper.Review` | Code review builder |
 | `CodexWrapper.Result` | Parsed command result (stdout, stderr, exit code) |
 | `CodexWrapper.JsonLineEvent` | NDJSON streaming event parser |

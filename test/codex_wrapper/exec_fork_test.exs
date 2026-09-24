@@ -2,7 +2,7 @@ defmodule CodexWrapper.ExecForkTest do
   # Not async: the execution tests override the :runner application env.
   use ExUnit.Case, async: false
 
-  alias CodexWrapper.{Config, ExecFork, JsonLineEvent, Result}
+  alias CodexWrapper.{Config, ExecFork, JsonLineEvent, Result, UnsupportedError}
 
   @source "019a0000-0000-7000-8000-000000000001"
   @forked "019a0000-0000-7000-8000-000000000002"
@@ -18,12 +18,19 @@ defmodule CodexWrapper.ExecForkTest do
       reply
     end
 
+    # Streams read :exec_fork_test_stream when set, so a test can give the
+    # stream and the run/4 capability probe different output.
     @impl true
     def stream_lines(binary, args, opts, timeout) do
-      {test_pid, {:ok, {stdout, _code}}} =
-        Application.fetch_env!(:codex_wrapper, :exec_fork_test_runner)
-
+      {test_pid, reply} = Application.fetch_env!(:codex_wrapper, :exec_fork_test_runner)
       send(test_pid, {:runner_stream, binary, args, opts, timeout})
+
+      stdout =
+        case Application.fetch_env(:codex_wrapper, :exec_fork_test_stream) do
+          {:ok, stdout} -> stdout
+          :error -> with {:ok, {stdout, _code}} <- reply, do: stdout
+        end
+
       String.split(stdout, "\n", trim: true)
     end
   end
@@ -236,6 +243,7 @@ defmodule CodexWrapper.ExecForkTest do
         end
 
         Application.delete_env(:codex_wrapper, :exec_fork_test_runner)
+        Application.delete_env(:codex_wrapper, :exec_fork_test_stream)
       end)
 
       %{config: Config.new(binary: "codex", timeout: 1_000)}
@@ -344,6 +352,42 @@ defmodule CodexWrapper.ExecForkTest do
 
       assert_receive {:runner_stream, "codex", args, _opts, _timeout}
       assert "--json" in args
+    end
+
+    test "stream/2 on a CLI without exec fork raises UnsupportedError while enumerating",
+         %{config: config} do
+      # The old CLI's usage error goes to stderr, so the stream is empty, and
+      # `exec fork --help` prints the plain `codex exec` help.
+      script({:ok, {"Usage: codex exec [OPTIONS] [PROMPT]\n", 0}})
+      Application.put_env(:codex_wrapper, :exec_fork_test_stream, "")
+
+      stream = ExecFork.stream(ExecFork.new(@source), config)
+      refute_received {:runner_stream, _, _, _, _}
+
+      assert_raise UnsupportedError, ~r/:exec_fork/, fn -> Enum.to_list(stream) end
+      assert_received {:runner_stream, "codex", _args, _opts, _timeout}
+      assert_received {:runner_run, "codex", probe, _opts, _timeout}
+      assert Enum.take(probe, -3) == ["exec", "fork", "--help"]
+
+      assert %UnsupportedError{capability: :exec_fork} =
+               catch_error(Enum.to_list(stream))
+    end
+
+    test "stream/2 ends empty without raising when the CLI has exec fork", %{config: config} do
+      script({:ok, {"Usage: codex exec fork [OPTIONS] <SESSION_ID> [PROMPT]\n", 0}})
+      Application.put_env(:codex_wrapper, :exec_fork_test_stream, "")
+
+      assert [] = @source |> ExecFork.new() |> ExecFork.stream(config) |> Enum.to_list()
+      assert_received {:runner_run, "codex", probe, _opts, _timeout}
+      assert Enum.take(probe, -3) == ["exec", "fork", "--help"]
+    end
+
+    test "stream/2 skips the capability probe once a line arrives", %{config: config} do
+      script({:ok, {jsonl(@forked), 0}})
+
+      assert [_ | _] = @source |> ExecFork.new() |> ExecFork.stream(config) |> Enum.to_list()
+      assert [_] = @source |> ExecFork.new() |> ExecFork.stream(config) |> Enum.take(1)
+      refute_received {:runner_run, _, _, _, _}
     end
 
     test "stream/2 raises on an invalid session id", %{config: config} do
