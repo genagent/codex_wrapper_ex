@@ -11,7 +11,7 @@ defmodule CodexWrapper.IntegrationTest do
   use ExUnit.Case, async: false
 
   alias CodexWrapper.Commands.Features
-  alias CodexWrapper.{Config, Exec, JsonLineEvent, Session}
+  alias CodexWrapper.{Config, Exec, ExecFork, ExecResume, JsonLineEvent, Session}
 
   @moduletag :integration
 
@@ -59,6 +59,51 @@ defmodule CodexWrapper.IntegrationTest do
 
       assert_event_contract(events)
       assert is_binary(thread_id(events))
+    end
+  end
+
+  describe "live exec fork" do
+    test "forks into a new session and leaves the source resumable", %{config: config} do
+      assert ExecFork.supported?(config)
+
+      # The source must be persisted to be forkable, so no ephemeral here.
+      assert {:ok, source_events} =
+               "Remember the word ALPHA. Reply with exactly: ok"
+               |> Exec.new()
+               |> Exec.sandbox(:read_only)
+               |> Exec.skip_git_repo_check()
+               |> Exec.ignore_user_config()
+               |> Exec.execute_json(config)
+
+      source = thread_id(source_events)
+      assert is_binary(source)
+
+      assert {:ok, fork} =
+               source
+               |> ExecFork.new()
+               |> ExecFork.prompt(
+                 "What word did I ask you to remember? Reply with the word only."
+               )
+               |> ExecFork.sandbox(:read_only)
+               |> ExecFork.skip_git_repo_check()
+               |> ExecFork.ignore_user_config()
+               |> ExecFork.fork(config)
+
+      assert_event_contract(fork.events)
+      assert fork.source_session_id == source
+      assert is_binary(fork.session_id)
+      assert fork.session_id != source
+      assert agent_text(fork.events) =~ "ALPHA"
+
+      assert {:ok, resumed} =
+               ExecResume.new()
+               |> ExecResume.session_id(source)
+               |> ExecResume.prompt("Reply with exactly: CODEX_WRAPPER_RESUME_OK")
+               |> ExecResume.skip_git_repo_check()
+               |> ExecResume.ignore_user_config()
+               |> ExecResume.execute_json(config)
+
+      assert thread_id(resumed) == source
     end
   end
 
@@ -117,6 +162,12 @@ defmodule CodexWrapper.IntegrationTest do
     events
     |> Enum.find(&JsonLineEvent.type?(&1, "thread.started"))
     |> JsonLineEvent.get("thread_id")
+  end
+
+  defp agent_text(events) do
+    events
+    |> Enum.filter(&JsonLineEvent.type?(&1, "item.completed"))
+    |> Enum.map_join("\n", &(get_in(JsonLineEvent.data(&1), ["item", "text"]) || ""))
   end
 
   defp feature_row_pattern do
