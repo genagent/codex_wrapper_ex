@@ -14,13 +14,15 @@ servers -- all from Elixir.
 
 ## Installation
 
+<!-- x-release-please-start-version -->
 ```elixir
 def deps do
   [
-    {:codex_wrapper, "~> 0.1.0"}
+    {:codex_wrapper, "~> 0.5.0"}
   ]
 end
 ```
+<!-- x-release-please-end -->
 
 Requires the `codex` CLI to be installed and on your PATH (or set `CODEX_CLI`
 to point at it).
