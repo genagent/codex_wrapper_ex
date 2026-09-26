@@ -12,7 +12,8 @@ defmodule CodexWrapperEx.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       dialyzer: [
-        plt_file: {:no_warn, "_build/dev/dialyxir_#{System.otp_release()}.plt"},
+        plt_local_path: "priv/plts",
+        plt_core_path: "priv/plts",
         # `mix codex.contract` is a Mix task, so Mix must be in the PLT.
         plt_add_apps: [:mix]
       ],
