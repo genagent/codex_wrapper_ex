@@ -113,4 +113,29 @@ defmodule CodexWrapper.Runner.ForcolaTest do
       refute os_alive?(pid), "expected pid #{pid} to be killed on halt, but it is alive"
     end
   end
+
+  describe "regression: forcola closes the child's stdin (forcola >= 0.3.4)" do
+    # Before forcola 0.3.4 the child's stdin stayed open, so a process that
+    # reads until EOF -- like `codex exec` with no piped prompt -- blocked
+    # ("Reading additional input from stdin...") until the timeout elapsed.
+    # `cat` with no arguments reads stdin the same way, without needing the
+    # `codex` binary. A generous timeout paired with a much tighter elapsed
+    # bound proves EOF arrived promptly rather than forcola giving up at
+    # the deadline.
+    test "run/4: a stdin-reading command exits well before the timeout" do
+      started = System.monotonic_time(:millisecond)
+
+      assert {:ok, {_stdout, 0}} = Forcola.run("cat", [], [], 10_000)
+
+      assert System.monotonic_time(:millisecond) - started < 5_000
+    end
+
+    test "stream_lines/4: a stdin-reading command ends the stream well before the timeout" do
+      started = System.monotonic_time(:millisecond)
+
+      assert [] = Forcola.stream_lines("cat", [], [], 10_000) |> Enum.to_list()
+
+      assert System.monotonic_time(:millisecond) - started < 5_000
+    end
+  end
 end
