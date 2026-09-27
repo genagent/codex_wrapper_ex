@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.0...v0.5.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **deps:** raise forcola floor to ~&gt; 0.3.4 ([#94](https://github.com/genagent/codex_wrapper_ex/issues/94)) ([daee8de](https://github.com/genagent/codex_wrapper_ex/commit/daee8de15116f5420b5012ef99383c3441d73d13))
+
 ## [0.5.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.4.0...v0.5.0) (2026-09-24)
 
 
