@@ -43,7 +43,48 @@ defmodule CodexWrapperEx.MixProject do
   defp docs do
     [
       main: "CodexWrapper",
-      source_url: @source_url
+      source_url: @source_url,
+      source_ref: "v#{@version}",
+      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      groups_for_modules: [
+        "Running codex": [
+          CodexWrapper,
+          CodexWrapper.Exec,
+          CodexWrapper.ExecResume,
+          CodexWrapper.ExecFork,
+          CodexWrapper.Review,
+          CodexWrapper.Session,
+          CodexWrapper.SessionServer,
+          CodexWrapper.IEx
+        ],
+        "Config, results, support": [
+          CodexWrapper.Config,
+          CodexWrapper.Result,
+          CodexWrapper.JsonLineEvent,
+          CodexWrapper.Retry,
+          CodexWrapper.Telemetry,
+          CodexWrapper.Telemetry.Stream,
+          CodexWrapper.UnsupportedError
+        ],
+        "Subprocess execution": [
+          CodexWrapper.Runner,
+          CodexWrapper.Runner.Port,
+          CodexWrapper.Runner.Forcola
+        ],
+        "Command surface": [
+          CodexWrapper.Command,
+          CodexWrapper.Commands.Apply,
+          CodexWrapper.Commands.Archive,
+          CodexWrapper.Commands.Auth,
+          CodexWrapper.Commands.Completion,
+          CodexWrapper.Commands.Doctor,
+          CodexWrapper.Commands.Features,
+          CodexWrapper.Commands.Mcp,
+          CodexWrapper.Commands.McpServer,
+          CodexWrapper.Commands.Sandbox,
+          CodexWrapper.Commands.Version
+        ]
+      ]
     ]
   end
 
@@ -51,7 +92,7 @@ defmodule CodexWrapperEx.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib mix.exs README.md LICENSE .formatter.exs),
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE .formatter.exs),
       maintainers: ["Josh Rotenberg"]
     ]
   end
