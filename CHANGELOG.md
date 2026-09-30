@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.2...v0.5.3) (2026-09-30)
+
+
+### Bug Fixes
+
+* protect CLI positionals and support resume schema ([#103](https://github.com/genagent/codex_wrapper_ex/issues/103)) ([f99454f](https://github.com/genagent/codex_wrapper_ex/commit/f99454ffce5f21cf54bcd287cf47c6c15dc54cdb))
+
 ## [0.5.2](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.1...v0.5.2) (2026-09-30)
 
 
