@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.1...v0.5.2) (2026-09-30)
+
+
+### Bug Fixes
+
+* accept string env and working directory in Port runner ([#98](https://github.com/genagent/codex_wrapper_ex/issues/98)) ([cfa0ce3](https://github.com/genagent/codex_wrapper_ex/commit/cfa0ce3d0990dad212256a896598cb1639c15107))
+
 ## [0.5.1](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.0...v0.5.1) (2026-09-27)
 
 
