@@ -31,7 +31,7 @@ jobs:
           otp-version: ${{ matrix.otp }}
 
       - name: Restore deps cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             deps
@@ -77,7 +77,7 @@ jobs:
           otp-version: "27"
 
       - name: Restore deps cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             deps
