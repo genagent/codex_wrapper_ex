@@ -14,7 +14,7 @@ defmodule CodexWrapper.Runner do
   runner:
 
       # mix.exs
-      {:forcola, "~> 0.3.4"}
+      {:forcola, "~> 0.3.5"}
 
       # config/config.exs
       config :codex_wrapper, runner: CodexWrapper.Runner.Forcola
