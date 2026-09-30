@@ -133,6 +133,7 @@ defmodule CodexWrapper.ReviewTest do
                "--model",
                "gpt-5",
                "--json",
+               "--",
                "focus on correctness"
              ]
     end
@@ -247,6 +248,14 @@ defmodule CodexWrapper.ReviewTest do
         |> Review.args()
 
       assert args == ["exec", "review", "--uncommitted"]
+    end
+
+    test "leading-hyphen and stdin prompts are positional" do
+      assert Review.new() |> Review.prompt("-x") |> Review.args() ==
+               ["exec", "review", "--", "-x"]
+
+      assert Review.new() |> Review.prompt("-") |> Review.args() ==
+               ["exec", "review", "--", "-"]
     end
   end
 

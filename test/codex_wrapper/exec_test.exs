@@ -145,7 +145,12 @@ defmodule CodexWrapper.ExecTest do
   describe "args/1" do
     test "minimal args" do
       args = Exec.new("fix the test") |> Exec.args()
-      assert args == ["exec", "fix the test"]
+      assert args == ["exec", "--", "fix the test"]
+    end
+
+    test "leading-hyphen and stdin prompts are positional" do
+      assert Exec.new("-x") |> Exec.args() == ["exec", "--", "-x"]
+      assert Exec.new("-") |> Exec.args() == ["exec", "--", "-"]
     end
 
     test "full args match Rust ordering" do
@@ -170,6 +175,7 @@ defmodule CodexWrapper.ExecTest do
                "--skip-git-repo-check",
                "--ephemeral",
                "--json",
+               "--",
                "fix the test"
              ]
     end
@@ -181,7 +187,7 @@ defmodule CodexWrapper.ExecTest do
         |> Exec.profile("fast")
         |> Exec.args()
 
-      assert args == ["exec", "--model", "o3", "--profile", "fast", "prompt"]
+      assert args == ["exec", "--model", "o3", "--profile", "fast", "--", "prompt"]
     end
 
     test "profile is omitted when unset" do
@@ -233,7 +239,7 @@ defmodule CodexWrapper.ExecTest do
 
     test "search/1 emits the web_search config key set to live" do
       args = Exec.new("p") |> Exec.search() |> Exec.args()
-      assert args == ["exec", "-c", ~s(web_search="live"), "p"]
+      assert args == ["exec", "-c", ~s(web_search="live"), "--", "p"]
     end
 
     test "search/2 emits each web search mode" do
@@ -273,13 +279,14 @@ defmodule CodexWrapper.ExecTest do
                ~s(model_reasoning_effort="high"),
                "-c",
                ~s(web_search="live"),
+               "--",
                "p"
              ]
     end
 
     test "an explicit web_search config override is left alone" do
       args = Exec.new("p") |> Exec.config(~s(web_search="cached")) |> Exec.args()
-      assert args == ["exec", "-c", ~s(web_search="cached"), "p"]
+      assert args == ["exec", "-c", ~s(web_search="cached"), "--", "p"]
     end
 
     test "sandbox modes" do
@@ -330,6 +337,7 @@ defmodule CodexWrapper.ExecTest do
                ~s(model_reasoning_effort="high"),
                "-c",
                ~s(approval_policy="never"),
+               "--",
                "p"
              ]
     end
@@ -340,7 +348,7 @@ defmodule CodexWrapper.ExecTest do
         |> Exec.config(~s(approval_policy="untrusted"))
         |> Exec.args()
 
-      assert args == ["exec", "-c", ~s(approval_policy="untrusted"), "p"]
+      assert args == ["exec", "-c", ~s(approval_policy="untrusted"), "--", "p"]
     end
 
     test "prompt is always last" do
