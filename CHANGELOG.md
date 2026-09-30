@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.2](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.1...v0.5.2) (2026-09-30)
+
+
+### Bug Fixes
+
+* accept string env and working directory in Port runner ([#98](https://github.com/genagent/codex_wrapper_ex/issues/98)) ([cfa0ce3](https://github.com/genagent/codex_wrapper_ex/commit/cfa0ce3d0990dad212256a896598cb1639c15107))
+
+## [0.5.1](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.0...v0.5.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **deps:** raise forcola floor to ~&gt; 0.3.4 ([#94](https://github.com/genagent/codex_wrapper_ex/issues/94)) ([daee8de](https://github.com/genagent/codex_wrapper_ex/commit/daee8de15116f5420b5012ef99383c3441d73d13))
+
 ## [0.5.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.4.0...v0.5.0) (2026-09-24)
 
 

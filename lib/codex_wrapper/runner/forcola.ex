@@ -10,9 +10,13 @@ if Code.ensure_loaded?(Forcola) do
     `CodexWrapper.Runner.Port` would leave them running as orphans (see
     #48 and closed #33).
 
-    forcola runs the child one-shot with no stdin writer, so `codex` sees
-    EOF naturally -- the `/bin/sh ... < /dev/null` wrapper the default
-    runner needs is unnecessary here.
+    forcola closes the child's stdin immediately after spawn (forcola
+    0.3.4, forcola#67), so `codex` sees EOF naturally -- the `/bin/sh
+    ... < /dev/null` wrapper the default runner needs is unnecessary
+    here. Before 0.3.4 forcola left the child's stdin open, and `codex
+    exec` would print "Reading additional input from stdin..." and hang
+    until the timeout elapsed; the `~> 0.3.5` floor on the optional
+    dependency (see `mix.exs`) guarantees the fix is present.
 
     forcola requires a finite whole-run bound, so a command with no
     `:timeout` runs under `forcola_default_timeout_ms` instead of
