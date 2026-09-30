@@ -651,7 +651,7 @@ required.
 
 ```elixir
 # mix.exs
-{:forcola, "~> 0.3"}
+{:forcola, "~> 0.3.5"}
 ```
 
 ```elixir
