@@ -42,6 +42,7 @@ defmodule CodexWrapper.ExecResume do
           skip_git_repo_check: boolean(),
           ephemeral: boolean(),
           json: boolean(),
+          output_schema: String.t() | nil,
           output_last_message: String.t() | nil,
           images: [String.t()],
           config_overrides: [String.t()],
@@ -56,6 +57,7 @@ defmodule CodexWrapper.ExecResume do
     :session_id,
     :prompt,
     :model,
+    :output_schema,
     :output_last_message,
     :sandbox,
     last: false,
@@ -182,6 +184,10 @@ defmodule CodexWrapper.ExecResume do
   @spec output_last_message(t(), String.t()) :: t()
   def output_last_message(%__MODULE__{} = e, path), do: %{e | output_last_message: path}
 
+  @doc "Set the JSON Schema path for the final response."
+  @spec output_schema(t(), String.t()) :: t()
+  def output_schema(%__MODULE__{} = e, path), do: %{e | output_schema: path}
+
   @doc "Add an image path."
   @spec image(t(), String.t()) :: t()
   def image(%__MODULE__{} = e, path), do: %{e | images: e.images ++ [path]}
@@ -278,9 +284,9 @@ defmodule CodexWrapper.ExecResume do
     |> add_bool("--ignore-user-config", e.ignore_user_config)
     |> add_bool("--ignore-rules", e.ignore_rules)
     |> add_bool("--json", e.json)
+    |> add_opt("--output-schema", e.output_schema)
     |> add_opt("--output-last-message", e.output_last_message)
-    |> add_opt_flag(e.session_id)
-    |> add_opt_flag(e.prompt)
+    |> add_positionals([e.session_id, e.prompt])
   end
 
   @impl Command
@@ -296,8 +302,13 @@ defmodule CodexWrapper.ExecResume do
 
   # --- Arg helpers ---
 
-  defp add_opt_flag(args, nil), do: args
-  defp add_opt_flag(args, value), do: args ++ [value]
+  defp add_positionals(args, values) do
+    case Enum.reject(values, &is_nil/1) do
+      [] -> args
+      positionals -> args ++ ["--" | positionals]
+    end
+  end
+
   defp add_opt(args, _flag, nil), do: args
   defp add_opt(args, flag, value), do: args ++ [flag, value]
   defp add_bool(args, _flag, false), do: args

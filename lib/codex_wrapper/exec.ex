@@ -362,7 +362,7 @@ defmodule CodexWrapper.Exec do
     |> add_opt("--color", format_color(e.color))
     |> add_bool("--json", e.json)
     |> add_opt("--output-last-message", e.output_last_message)
-    |> add_flag(e.prompt)
+    |> add_positionals([e.prompt])
   end
 
   @impl Command
@@ -378,7 +378,13 @@ defmodule CodexWrapper.Exec do
 
   # --- Arg helpers ---
 
-  defp add_flag(args, value), do: args ++ [value]
+  defp add_positionals(args, values) do
+    case Enum.reject(values, &is_nil/1) do
+      [] -> args
+      positionals -> args ++ ["--" | positionals]
+    end
+  end
+
   defp add_opt(args, _flag, nil), do: args
   defp add_opt(args, flag, value), do: args ++ [flag, value]
   defp add_bool(args, _flag, false), do: args

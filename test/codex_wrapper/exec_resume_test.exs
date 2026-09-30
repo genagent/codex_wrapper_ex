@@ -113,7 +113,7 @@ defmodule CodexWrapper.ExecResumeTest do
 
     test "with session_id only" do
       args = ExecResume.new() |> ExecResume.session_id("abc-123") |> ExecResume.args()
-      assert args == ["exec", "resume", "abc-123"]
+      assert args == ["exec", "resume", "--", "abc-123"]
     end
 
     test "with session_id and prompt" do
@@ -123,12 +123,41 @@ defmodule CodexWrapper.ExecResumeTest do
         |> ExecResume.prompt("continue")
         |> ExecResume.args()
 
-      assert args == ["exec", "resume", "abc-123", "continue"]
+      assert args == ["exec", "resume", "--", "abc-123", "continue"]
     end
 
     test "with --last flag" do
       args = ExecResume.new() |> ExecResume.last() |> ExecResume.args()
-      assert "--last" in args
+      assert args == ["exec", "resume", "--last"]
+    end
+
+    test "leading-hyphen and stdin prompts follow the session id" do
+      base = ExecResume.new() |> ExecResume.session_id("abc-123")
+
+      assert base |> ExecResume.prompt("-x") |> ExecResume.args() ==
+               ["exec", "resume", "--", "abc-123", "-x"]
+
+      assert base |> ExecResume.prompt("-") |> ExecResume.args() ==
+               ["exec", "resume", "--", "abc-123", "-"]
+    end
+
+    test "output_schema/2 appears before the positional arguments" do
+      args =
+        ExecResume.new()
+        |> ExecResume.output_schema("/tmp/response.json")
+        |> ExecResume.session_id("abc-123")
+        |> ExecResume.prompt("continue")
+        |> ExecResume.args()
+
+      assert args == [
+               "exec",
+               "resume",
+               "--output-schema",
+               "/tmp/response.json",
+               "--",
+               "abc-123",
+               "continue"
+             ]
     end
 
     test "full args match Rust ordering" do
@@ -151,6 +180,7 @@ defmodule CodexWrapper.ExecResumeTest do
                "gpt-5",
                "--skip-git-repo-check",
                "--json",
+               "--",
                "abc-123",
                "continue"
              ]

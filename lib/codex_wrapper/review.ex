@@ -292,7 +292,7 @@ defmodule CodexWrapper.Review do
     |> add_opt("--output-schema", r.output_schema)
     |> add_bool("--json", r.json)
     |> add_opt("--output-last-message", r.output_last_message)
-    |> add_prompt(r.prompt)
+    |> add_positionals([r.prompt])
   end
 
   @impl Command
@@ -308,8 +308,13 @@ defmodule CodexWrapper.Review do
 
   # --- Arg helpers ---
 
-  defp add_prompt(args, nil), do: args
-  defp add_prompt(args, prompt), do: args ++ [prompt]
+  defp add_positionals(args, values) do
+    case Enum.reject(values, &is_nil/1) do
+      [] -> args
+      positionals -> args ++ ["--" | positionals]
+    end
+  end
+
   defp add_opt(args, _flag, nil), do: args
   defp add_opt(args, flag, value), do: args ++ [flag, value]
   defp add_bool(args, _flag, false), do: args
