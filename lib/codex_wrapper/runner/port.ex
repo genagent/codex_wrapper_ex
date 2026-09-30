@@ -102,7 +102,6 @@ defmodule CodexWrapper.Runner.Port do
   end
 
   defp run_with_closed_stdin(binary, args, opts) do
-    cd = Keyword.get(opts, :cd)
     env = Keyword.get(opts, :env, [])
 
     port_opts =
@@ -112,7 +111,7 @@ defmodule CodexWrapper.Runner.Port do
         :stderr_to_stdout,
         args: Command.shell_cmd_args(binary, args, capture_stderr: true)
       ]
-      |> maybe_add(:cd, cd)
+      |> maybe_add(:cd, stream_cd(opts))
       |> maybe_add_env(env)
 
     port = Port.open({:spawn_executable, "/bin/sh"}, port_opts)
@@ -133,5 +132,13 @@ defmodule CodexWrapper.Runner.Port do
   defp maybe_add(opts, key, value), do: [{key, value} | opts]
 
   defp maybe_add_env(opts, []), do: opts
-  defp maybe_add_env(opts, env), do: [{:env, env} | opts]
+
+  defp maybe_add_env(opts, env) do
+    port_env = Enum.map(env, fn {key, value} -> {port_env_part(key), port_env_part(value)} end)
+    [{:env, port_env} | opts]
+  end
+
+  defp port_env_part(value) when is_binary(value), do: String.to_charlist(value)
+  defp port_env_part(value) when is_list(value), do: value
+  defp port_env_part(false), do: false
 end

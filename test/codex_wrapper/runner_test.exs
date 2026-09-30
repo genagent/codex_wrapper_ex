@@ -34,6 +34,23 @@ defmodule CodexWrapper.RunnerTest do
       assert out =~ "err"
     end
 
+    test "accepts Config-style string working directory and environment" do
+      leaf = "cxw-run-cd-#{System.unique_integer([:positive])}"
+      directory = Path.join(System.tmp_dir!(), leaf)
+      File.mkdir_p!(directory)
+      on_exit(fn -> File.rm_rf(directory) end)
+
+      assert {:ok, {output, 0}} =
+               Port.run(
+                 "sh",
+                 ["-c", "printf '%s:%s' \"$PWD\" \"$CXW_RUN_TEST\""],
+                 [cd: directory, env: [{"CXW_RUN_TEST", "from-env"}]],
+                 nil
+               )
+
+      assert String.ends_with?(output, "/#{leaf}:from-env")
+    end
+
     test "a timeout returns {:error, :timeout}" do
       assert {:error, :timeout} = Port.run("sleep", ["10"], [], 200)
     end
@@ -72,7 +89,18 @@ defmodule CodexWrapper.RunnerTest do
       assert Path.basename(pwd) == leaf
     end
 
-    test "passes :env through" do
+    test "accepts Config-style string environment pairs" do
+      assert ["from-env"] =
+               Port.stream_lines(
+                 "sh",
+                 ["-c", "echo $CXW_STREAM_TEST"],
+                 [env: [{"CXW_STREAM_TEST", "from-env"}]],
+                 5_000
+               )
+               |> Enum.to_list()
+    end
+
+    test "also accepts preconverted charlist environment pairs" do
       assert ["from-env"] =
                Port.stream_lines(
                  "sh",
