@@ -15,8 +15,8 @@ if Code.ensure_loaded?(Forcola) do
     ... < /dev/null` wrapper the default runner needs is unnecessary
     here. Before 0.3.4 forcola left the child's stdin open, and `codex
     exec` would print "Reading additional input from stdin..." and hang
-    until the timeout elapsed; the `~> 0.3.5` floor on the optional
-    dependency (see `mix.exs`) guarantees the fix is present.
+    until the timeout elapsed; the optional dependency's supported
+    `~> 0.3.5` and `~> 0.4.0` lines (see `mix.exs`) both include the fix.
 
     forcola requires a finite whole-run bound, so a command with no
     `:timeout` runs under `forcola_default_timeout_ms` instead of
