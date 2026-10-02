@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.3...v0.5.4) (2026-10-02)
+
+
+### Bug Fixes
+
+* support Forcola 0.4 alongside 0.3.5 ([#105](https://github.com/genagent/codex_wrapper_ex/issues/105)) ([ad0b412](https://github.com/genagent/codex_wrapper_ex/commit/ad0b412ecd8ea3ce4bb4c2a3a6917ec5f688557e))
+
 ## [0.5.3](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.2...v0.5.3) (2026-09-30)
 
 
