@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.5](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.4...v0.5.5) (2026-10-02)
+
+
+### Bug Fixes
+
+* **config:** reject unsupported verbose option ([#107](https://github.com/genagent/codex_wrapper_ex/issues/107)) ([3f1c3fb](https://github.com/genagent/codex_wrapper_ex/commit/3f1c3fbfc46b28937a4eb5c831c5c9c5ee8c93c5))
+
 ## [0.5.4](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.3...v0.5.4) (2026-10-02)
 
 
