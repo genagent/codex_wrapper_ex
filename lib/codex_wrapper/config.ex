@@ -36,16 +36,21 @@ defmodule CodexWrapper.Config do
     * `:working_dir` - Working directory for the subprocess
     * `:env` - List of `{key, value}` environment variable tuples
     * `:timeout` - Command timeout in milliseconds
-    * `:verbose` - Enable verbose output
+    * `:verbose` - Compatibility option. Only `false` is supported; `true` raises
+      `ArgumentError` before the CLI is launched, because the Codex CLI does not
+      define a `--verbose` flag
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
+    verbose = Keyword.get(opts, :verbose, false)
+    validate_verbose!(verbose)
+
     %__MODULE__{
       binary: opts[:binary] || find_binary(),
       working_dir: opts[:working_dir],
       env: opts[:env] || [],
       timeout: opts[:timeout],
-      verbose: Keyword.get(opts, :verbose, false)
+      verbose: verbose
     }
   end
 
@@ -66,10 +71,21 @@ defmodule CodexWrapper.Config do
 
   @doc """
   Build the base command args from config (global flags).
+
+  Currently always empty. Raises `ArgumentError` if `verbose: true` was set
+  on a directly constructed or updated struct.
   """
   @spec base_args(t()) :: [String.t()]
   def base_args(%__MODULE__{} = config) do
-    if config.verbose, do: ["--verbose"], else: []
+    validate_verbose!(config.verbose)
+    []
+  end
+
+  defp validate_verbose!(verbose) when verbose in [false, nil], do: :ok
+
+  defp validate_verbose!(_verbose) do
+    raise ArgumentError,
+          "verbose: true is unsupported: the Codex CLI does not define --verbose"
   end
 
   @doc """

@@ -45,7 +45,7 @@ defmodule CodexWrapper.IEx do
   Start a new conversation. Prints the response.
 
   Accepts all options from `CodexWrapper.exec/2` -- config options
-  (`:working_dir`, `:binary`, `:env`, `:timeout`, `:verbose`)
+  (`:working_dir`, `:binary`, `:env`, `:timeout`, and `:verbose`, where only `false` is supported)
   and exec options (`:model`, `:sandbox`, `:approval_policy`, etc.).
   """
   def chat(prompt, opts \\ []) do
