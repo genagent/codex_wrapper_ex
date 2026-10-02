@@ -34,6 +34,16 @@ defmodule CodexWrapper.CommandTest do
     def parse_output(_stdout, code), do: {:error, {:exit, code}}
   end
 
+  describe "unsupported verbose" do
+    test "run/3 raises before launching the binary when verbose is true" do
+      config = %Config{binary: "/nonexistent/codex-must-not-run", verbose: true}
+
+      assert_raise ArgumentError, ~r/--verbose/, fn ->
+        Command.run(EchoCommand, %EchoCommand{}, config)
+      end
+    end
+  end
+
   describe "run/3" do
     test "executes command and parses output" do
       config = Config.new(binary: "sh")

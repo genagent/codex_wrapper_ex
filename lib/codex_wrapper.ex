@@ -91,7 +91,7 @@ defmodule CodexWrapper do
     * `:working_dir` - Working directory
     * `:env` - Environment variables
     * `:timeout` - Timeout in ms
-    * `:verbose` - Enable verbose output
+    * `:verbose` - Compatibility option: only `false` is supported; `true` raises
 
   Exec options (passed to `Exec` builder):
     * `:model` - Model name
@@ -170,7 +170,7 @@ defmodule CodexWrapper do
     * `:working_dir` - Working directory
     * `:env` - Environment variables
     * `:timeout` - Timeout in ms
-    * `:verbose` - Enable verbose output
+    * `:verbose` - Compatibility option: only `false` is supported; `true` raises
 
   Review options (passed to `Review` builder):
     * `:prompt` - Additional review context

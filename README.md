@@ -627,7 +627,7 @@ Exception metadata adds the standard `:kind`, `:reason`, and
 | `:working_dir` | `String.t()` | Working directory for the subprocess |
 | `:env` | `[{String.t(), String.t()}]` | Environment variables |
 | `:timeout` | `pos_integer()` | Command timeout in milliseconds |
-| `:verbose` | `boolean()` | Enable verbose output |
+| `:verbose` | `boolean()` | Compatibility option: only `false` is supported; `true` raises before CLI execution |
 
 ### Runners: process-group cleanup with forcola
 

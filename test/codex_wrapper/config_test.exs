@@ -14,9 +14,9 @@ defmodule CodexWrapper.ConfigTest do
     end
 
     test "with explicit options" do
-      config = Config.new(working_dir: "/tmp", verbose: true, timeout: 5000)
+      config = Config.new(working_dir: "/tmp", verbose: false, timeout: 5000)
       assert config.working_dir == "/tmp"
-      assert config.verbose == true
+      assert config.verbose == false
       assert config.timeout == 5000
     end
 
@@ -28,6 +28,14 @@ defmodule CodexWrapper.ConfigTest do
     test "with env" do
       config = Config.new(env: [{"OPENAI_API_KEY", "sk-test"}])
       assert config.env == [{"OPENAI_API_KEY", "sk-test"}]
+    end
+  end
+
+  describe "unsupported verbose" do
+    test "new/1 rejects verbose: true" do
+      assert_raise ArgumentError, ~r/verbose: true is unsupported/, fn ->
+        Config.new(verbose: true)
+      end
     end
   end
 
@@ -63,9 +71,14 @@ defmodule CodexWrapper.ConfigTest do
       assert Config.base_args(config) == []
     end
 
-    test "includes verbose flag" do
-      config = Config.new(verbose: true)
-      assert Config.base_args(config) == ["--verbose"]
+    test "never emits --verbose" do
+      assert Config.base_args(Config.new(verbose: false)) == []
+    end
+
+    test "rejects verbose: true on a directly built struct" do
+      assert_raise ArgumentError, ~r/--verbose/, fn ->
+        Config.base_args(%Config{binary: "codex", verbose: true})
+      end
     end
   end
 
