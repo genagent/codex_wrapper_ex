@@ -1,4 +1,6 @@
 defmodule CodexWrapper.Runner do
+  require Logger
+
   @moduledoc """
   How one-shot `codex` subprocesses are executed.
 
@@ -78,7 +80,7 @@ defmodule CodexWrapper.Runner do
   whole-run bound and `Runner.Forcola` uses its configurable default.
   Both built-in runners default to a 300,000 ms idle bound.
 
-  Optional. `CodexWrapper.Runner.stream_lines/4` falls back to
+  Optional. `CodexWrapper.Runner.stream_lines/4` warns and falls back to
   `Runner.Port` for runners that do not implement it.
   """
   @callback stream_lines(
@@ -149,18 +151,36 @@ defmodule CodexWrapper.Runner do
   @doc """
   `stream_lines/4` on the configured runner.
 
-  Falls back to `CodexWrapper.Runner.Port` when the configured runner
-  does not implement the optional callback, so a runner written against
-  the one-shot `run/4` contract alone keeps working.
+  Falls back to `CodexWrapper.Runner.Port` with a warning when the
+  configured runner cannot be loaded or does not implement the optional
+  callback, so a runner written against the one-shot `run/4` contract
+  alone keeps working. A configured runner is loaded before checking the
+  callback.
   """
   @spec stream_lines(String.t(), [String.t()], opts(), timeout() | nil) :: Enumerable.t()
   def stream_lines(binary, args, opts, timeout) do
     runner = impl()
 
     runner =
-      if function_exported?(runner, :stream_lines, 4),
-        do: runner,
-        else: CodexWrapper.Runner.Port
+      case Code.ensure_loaded(runner) do
+        {:module, ^runner} ->
+          if function_exported?(runner, :stream_lines, 4) do
+            runner
+          else
+            Logger.warning(
+              "configured CodexWrapper runner #{inspect(runner)} does not implement stream_lines/4; falling back to CodexWrapper.Runner.Port"
+            )
+
+            CodexWrapper.Runner.Port
+          end
+
+        {:error, reason} ->
+          Logger.warning(
+            "configured CodexWrapper runner #{inspect(runner)} could not be loaded (#{inspect(reason)}); falling back to CodexWrapper.Runner.Port"
+          )
+
+          CodexWrapper.Runner.Port
+      end
 
     runner.stream_lines(binary, args, opts, timeout)
   end
