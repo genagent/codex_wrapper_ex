@@ -68,14 +68,27 @@ defmodule CodexWrapper.Runner.Port do
   defp next_line({_port, :timed_out, _deadline} = state, _idle_timeout, _timeout),
     do: {:halt, state}
 
+  # Once the exit status was queued, every earlier output frame is also
+  # queued. Drain those frames in order before ending the stream.
+  defp next_line({port, :draining, deadline} = state, _idle_timeout, _timeout) do
+    receive do
+      {^port, {:data, {:eol, line}}} -> {[line], state}
+      {^port, {:data, {:noeol, _partial}}} -> {[], state}
+    after
+      0 -> {:halt, {port, :exited, deadline}}
+    end
+  end
+
   defp next_line({port, :running, deadline} = state, idle_timeout, timeout) do
     remaining = if deadline, do: max(deadline - System.monotonic_time(:millisecond), 0)
 
     if remaining == 0 do
       # A slow consumer may resume after the deadline even though the CLI
-      # already exited. Prefer a queued completion over a false timeout.
+      # already exited. A queued exit means prior output is queued too;
+      # drain it before completing rather than dropping the terminal line.
       receive do
-        {^port, {:exit_status, _code}} -> {:halt, {port, :exited, deadline}}
+        {^port, {:exit_status, _code}} ->
+          next_line({port, :draining, deadline}, idle_timeout, timeout)
       after
         0 -> {[{:error, {:timeout, timeout}}], {port, :timed_out, deadline}}
       end
@@ -108,6 +121,10 @@ defmodule CodexWrapper.Runner.Port do
   # that can never arrive.
   defp close_port({_port, :exited, _deadline}), do: :ok
 
+  defp close_port({port, :draining, _deadline}) do
+    drain_completed_port(port)
+  end
+
   # Halted early (`Enum.take/2`, an idle timeout, an exception downstream)
   # with the process still alive: close the port, which closes its stdout
   # and leaves `codex` to die when it next writes. Use
@@ -119,6 +136,17 @@ defmodule CodexWrapper.Runner.Port do
       {^port, :closed} -> :ok
     after
       @close_timeout_ms -> :ok
+    end
+  end
+
+  # The exit status was consumed before entering :draining, so no more
+  # frames can arrive. Discard any unconsumed output on an early halt to
+  # avoid leaving it in a long-lived caller's mailbox.
+  defp drain_completed_port(port) do
+    receive do
+      {^port, _message} -> drain_completed_port(port)
+    after
+      0 -> :ok
     end
   end
 
