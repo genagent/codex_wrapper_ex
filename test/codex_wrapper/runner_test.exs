@@ -155,6 +155,42 @@ defmodule CodexWrapper.RunnerTest do
                end)
     end
 
+    test "a completed command retains queued lines after a slow consumer" do
+      assert ["one", "two"] =
+               Port.stream_lines("sh", ["-c", "printf 'one\\ntwo\\n'"], [], 200)
+               |> Enum.map(fn line ->
+                 Process.sleep(350)
+                 line
+               end)
+    end
+
+    test "an early halt while draining completed output does not wait for a close handshake" do
+      task =
+        Task.async(fn ->
+          {micros, lines} =
+            :timer.tc(fn ->
+              Port.stream_lines("sh", ["-c", "printf 'one\\ntwo\\nthree\\n'"], [], 200)
+              |> Stream.map(fn line ->
+                Process.sleep(350)
+                line
+              end)
+              |> Enum.take(2)
+            end)
+
+          {:messages, messages} = Process.info(self(), :messages)
+          {micros, lines, messages}
+        end)
+
+      {micros, lines, messages} = Task.await(task)
+      assert lines == ["one", "two"]
+      assert micros < 2_000_000
+
+      refute Enum.any?(messages, fn
+               {port, {:data, _}} when is_port(port) -> true
+               _ -> false
+             end)
+    end
+
     test "a completed stream returns promptly, without a close handshake" do
       {micros, _lines} =
         :timer.tc(fn -> Port.stream_lines("echo", ["hi"], [], 5_000) |> Enum.to_list() end)
