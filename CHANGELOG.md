@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.7](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.6...v0.5.7) (2026-10-03)
+
+
+### Bug Fixes
+
+* **stream:** drain completed Port output in order ([#111](https://github.com/genagent/codex_wrapper_ex/issues/111)) ([8b6b351](https://github.com/genagent/codex_wrapper_ex/commit/8b6b351e41a6baa98553fbc30e4d7ce3ba612a23))
+
 ## [0.5.6](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.5...v0.5.6) (2026-10-03)
 
 
