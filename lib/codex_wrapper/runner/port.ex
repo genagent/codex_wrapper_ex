@@ -13,7 +13,8 @@ defmodule CodexWrapper.Runner.Port do
 
   `stream_lines/4` uses the same `/bin/sh` wrapper in `:line` mode. Its
   `timeout` bounds the whole run; `opts[:idle_timeout_ms]` independently
-  bounds the wait between output frames.
+  bounds the wait between output frames. A JSONL line over 1 MiB ends the
+  stream with `{:error, {:line_too_long, 1_048_576}}`.
   """
 
   @behaviour CodexWrapper.Runner
@@ -26,9 +27,10 @@ defmodule CodexWrapper.Runner.Port do
   # How long to wait for the port to confirm it closed when the stream halts.
   @close_timeout_ms 5_000
 
-  # A line longer than this is split across frames; the fragments are
-  # dropped, matching the pre-Runner streaming paths.
+  # The extra byte lets a :noeol frame prove that a line exceeded the
+  # supported maximum, rather than merely reaching it before its newline.
   @max_line_bytes 1_048_576
+  @port_line_bytes @max_line_bytes + 1
 
   @impl true
   def run(binary, args, opts, timeout) do
@@ -49,7 +51,7 @@ defmodule CodexWrapper.Runner.Port do
       [
         :binary,
         :exit_status,
-        {:line, @max_line_bytes},
+        {:line, @port_line_bytes},
         {:args, Command.shell_cmd_args(binary, args)}
       ]
       |> maybe_add(:cd, stream_cd(opts))
@@ -68,12 +70,25 @@ defmodule CodexWrapper.Runner.Port do
   defp next_line({_port, :timed_out, _deadline} = state, _idle_timeout, _timeout),
     do: {:halt, state}
 
+  defp next_line({_port, status, _deadline} = state, _idle_timeout, _timeout)
+       when status in [:failed, :failed_after_exit],
+       do: {:halt, state}
+
   # Once the exit status was queued, every earlier output frame is also
   # queued. Drain those frames in order before ending the stream.
   defp next_line({port, :draining, deadline} = state, _idle_timeout, _timeout) do
     receive do
-      {^port, {:data, {:eol, line}}} -> {[line], state}
-      {^port, {:data, {:noeol, _partial}}} -> {[], state}
+      {^port, {:data, {:eol, line}}} when byte_size(line) > @max_line_bytes ->
+        {[{:error, {:line_too_long, @max_line_bytes}}], {port, :failed_after_exit, deadline}}
+
+      {^port, {:data, {:eol, line}}} ->
+        {[line], state}
+
+      {^port, {:data, {:noeol, partial}}} when byte_size(partial) > @max_line_bytes ->
+        {[{:error, {:line_too_long, @max_line_bytes}}], {port, :failed_after_exit, deadline}}
+
+      {^port, {:data, {:noeol, _partial}}} ->
+        {[], state}
     after
       0 -> {:halt, {port, :exited, deadline}}
     end
@@ -96,9 +111,20 @@ defmodule CodexWrapper.Runner.Port do
       wait = min_timeout(idle_timeout, remaining)
 
       receive do
-        {^port, {:data, {:eol, line}}} -> {[line], state}
-        {^port, {:data, {:noeol, _partial}}} -> {[], state}
-        {^port, {:exit_status, _code}} -> {:halt, {port, :exited, deadline}}
+        {^port, {:data, {:eol, line}}} when byte_size(line) > @max_line_bytes ->
+          {[{:error, {:line_too_long, @max_line_bytes}}], {port, :failed, deadline}}
+
+        {^port, {:data, {:eol, line}}} ->
+          {[line], state}
+
+        {^port, {:data, {:noeol, partial}}} when byte_size(partial) > @max_line_bytes ->
+          {[{:error, {:line_too_long, @max_line_bytes}}], {port, :failed, deadline}}
+
+        {^port, {:data, {:noeol, _partial}}} ->
+          {[], state}
+
+        {^port, {:exit_status, _code}} ->
+          {:halt, {port, :exited, deadline}}
       after
         wait ->
           reason =
@@ -120,6 +146,26 @@ defmodule CodexWrapper.Runner.Port do
   # to close would just block until `@close_timeout_ms` for a `:closed`
   # that can never arrive.
   defp close_port({_port, :exited, _deadline}), do: :ok
+
+  defp close_port({port, :failed_after_exit, _deadline}), do: drain_completed_port(port)
+
+  defp close_port({port, :failed, _deadline}) do
+    # The producer may have exited before the oversized frame was consumed.
+    # Do not wait for a close acknowledgement from an already dead port, and
+    # remove any output/exit frames left in this caller's mailbox.
+    if Port.info(port) do
+      send(port, {self(), :close})
+
+      receive do
+        {^port, :closed} -> :ok
+        {^port, {:exit_status, _code}} -> :ok
+      after
+        @close_timeout_ms -> :ok
+      end
+    end
+
+    drain_completed_port(port)
+  end
 
   defp close_port({port, :draining, _deadline}) do
     drain_completed_port(port)

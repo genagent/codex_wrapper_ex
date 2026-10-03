@@ -68,7 +68,7 @@ defmodule CodexWrapper.JsonLineEvent do
 
   The streaming counterpart of `parse_lines/1`: same silent drop of
   lines that do not parse, no buffering of the whole run. A runner's
-  final `{:error, reason}` becomes `%CodexWrapper.StreamError{}`. Used by
+  `{:error, reason}` becomes `%CodexWrapper.StreamError{}`. Used by
   `Exec.stream/2`, `ExecResume.stream/2`, and `Review.stream/2` over the
   lines their `CodexWrapper.Runner` produces.
   """
