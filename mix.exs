@@ -1,7 +1,7 @@
 defmodule CodexWrapperEx.MixProject do
   use Mix.Project
 
-  @version "0.5.7"
+  @version "0.5.8"
   @source_url "https://github.com/genagent/codex_wrapper_ex"
 
   def project do

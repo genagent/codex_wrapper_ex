@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.8](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.7...v0.5.8) (2026-10-03)
+
+
+### Bug Fixes
+
+* load configured runner before streaming dispatch ([#113](https://github.com/genagent/codex_wrapper_ex/issues/113)) ([65e8e80](https://github.com/genagent/codex_wrapper_ex/commit/65e8e802f8eb80694e35ababe46311cb0276d5cb))
+* report oversized Codex JSONL lines ([#115](https://github.com/genagent/codex_wrapper_ex/issues/115)) ([dc141a4](https://github.com/genagent/codex_wrapper_ex/commit/dc141a42085c811aa55b5820a5f1ddfa546abae3))
+
 ## [0.5.7](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.6...v0.5.7) (2026-10-03)
 
 
