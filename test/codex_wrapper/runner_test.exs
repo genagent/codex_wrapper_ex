@@ -199,6 +199,143 @@ defmodule CodexWrapper.RunnerTest do
       # close would block for the full 5s close timeout.
       assert micros < 2_000_000
     end
+
+    test "an oversized JSONL event becomes a typed terminal error" do
+      path =
+        Path.join(
+          System.tmp_dir!(),
+          "codex-oversized-jsonl-#{System.unique_integer([:positive])}"
+        )
+
+      on_exit(fn -> File.rm(path) end)
+
+      oversized =
+        Jason.encode!(%{
+          "type" => "item.completed",
+          "item" => %{"type" => "agent_message", "text" => String.duplicate("x", 2_100_000)}
+        })
+
+      File.write!(path, oversized <> "\n" <> ~s({"type":"turn.completed"}) <> "\n")
+
+      {micros, events} =
+        :timer.tc(fn ->
+          Port.stream_lines("sh", ["-c", ~s(cat "$1"; sleep 2), "sh", path], [], 10_000)
+          |> CodexWrapper.JsonLineEvent.parse_stream()
+          |> Enum.to_list()
+        end)
+
+      assert [%CodexWrapper.StreamError{reason: {:line_too_long, 1_048_576}}] = events
+      assert micros < 2_000_000
+
+      {:messages, messages} = Process.info(self(), :messages)
+
+      refute Enum.any?(messages, fn
+               {port, _} when is_port(port) -> true
+               _ -> false
+             end)
+    end
+
+    test "a JSONL line at the supported size still parses" do
+      path =
+        Path.join(System.tmp_dir!(), "codex-max-jsonl-#{System.unique_integer([:positive])}")
+
+      on_exit(fn -> File.rm(path) end)
+
+      event = %{"type" => "item.completed", "item" => %{"type" => "agent_message", "text" => ""}}
+      base_size = event |> Jason.encode!() |> byte_size()
+      line = put_in(event, ["item", "text"], String.duplicate("x", 1_048_576 - base_size))
+      line = Jason.encode!(line)
+      assert byte_size(line) == 1_048_576
+      File.write!(path, line <> "\n")
+
+      assert [%CodexWrapper.JsonLineEvent{event_type: "item.completed", raw: ^line}] =
+               Port.stream_lines("cat", [path], [], 10_000)
+               |> CodexWrapper.JsonLineEvent.parse_stream()
+               |> Enum.to_list()
+    end
+
+    test "a JSONL line one byte over the supported size fails" do
+      path =
+        Path.join(System.tmp_dir!(), "codex-over-jsonl-#{System.unique_integer([:positive])}")
+
+      on_exit(fn -> File.rm(path) end)
+
+      event = %{"type" => "item.completed", "item" => %{"type" => "agent_message", "text" => ""}}
+      base_size = event |> Jason.encode!() |> byte_size()
+      line = put_in(event, ["item", "text"], String.duplicate("x", 1_048_577 - base_size))
+      line = Jason.encode!(line)
+      assert byte_size(line) == 1_048_577
+      File.write!(path, line <> "\n")
+
+      assert [%CodexWrapper.StreamError{reason: {:line_too_long, 1_048_576}}] =
+               Port.stream_lines("cat", [path], [], 10_000)
+               |> CodexWrapper.JsonLineEvent.parse_stream()
+               |> Enum.to_list()
+    end
+
+    test "an oversized line remains an error after the producer exits during slow consumption" do
+      path =
+        Path.join(System.tmp_dir!(), "codex-drain-jsonl-#{System.unique_integer([:positive])}")
+
+      on_exit(fn -> File.rm(path) end)
+
+      oversized =
+        Jason.encode!(%{
+          "type" => "item.completed",
+          "item" => %{"type" => "agent_message", "text" => String.duplicate("x", 2_100_000)}
+        })
+
+      File.write!(path, ~s({"type":"thread.started"}) <> "\n" <> oversized <> "\n")
+
+      assert [:started, {:error, {:line_too_long, 1_048_576}}] =
+               Port.stream_lines("cat", [path], [], 200)
+               |> CodexWrapper.JsonLineEvent.parse_stream()
+               |> Enum.map(fn
+                 %CodexWrapper.JsonLineEvent{event_type: "thread.started"} ->
+                   Process.sleep(350)
+                   :started
+
+                 %CodexWrapper.StreamError{reason: reason} ->
+                   {:error, reason}
+
+                 %CodexWrapper.JsonLineEvent{event_type: type} ->
+                   {:unexpected, type}
+               end)
+
+      {:messages, messages} = Process.info(self(), :messages)
+
+      refute Enum.any?(messages, fn
+               {port, _} when is_port(port) -> true
+               _ -> false
+             end)
+    end
+
+    test "an unterminated oversized line does not leave a trailing Port fragment" do
+      path =
+        Path.join(System.tmp_dir!(), "codex-tail-jsonl-#{System.unique_integer([:positive])}")
+
+      on_exit(fn -> File.rm(path) end)
+
+      oversized =
+        Jason.encode!(%{
+          "type" => "item.completed",
+          "item" => %{"type" => "agent_message", "text" => String.duplicate("x", 1_048_600)}
+        })
+
+      File.write!(path, oversized)
+
+      assert [%CodexWrapper.StreamError{reason: {:line_too_long, 1_048_576}}] =
+               Port.stream_lines("cat", [path], [], 10_000)
+               |> CodexWrapper.JsonLineEvent.parse_stream()
+               |> Enum.to_list()
+
+      receive do
+        {port, message} when is_port(port) ->
+          flunk("Port left a stale message: #{inspect(message)}")
+      after
+        20 -> :ok
+      end
+    end
   end
 
   describe "stream_lines/4 dispatch" do
