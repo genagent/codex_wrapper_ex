@@ -80,11 +80,27 @@ defmodule CodexWrapper.Runner.ForcolaTest do
                |> Enum.to_list()
     end
 
-    test "a timeout ends the stream rather than raising" do
+    test "a whole-run timeout yields a typed error" do
       script = "echo first; sleep 10; echo never"
 
-      assert ["first"] =
+      assert ["first", {:error, {:timeout, 500}}] =
                Forcola.stream_lines("sh", ["-c", script], [], 500) |> Enum.to_list()
+    end
+
+    test "an idle timeout yields a distinct typed error" do
+      script = "echo first; sleep 10; echo never"
+
+      assert ["first", {:error, {:idle_timeout, 300}}] =
+               Forcola.stream_lines("sh", ["-c", script], [idle_timeout_ms: 300], 5_000)
+               |> Enum.to_list()
+    end
+
+    test "steady output may exceed the idle bound" do
+      script = "for i in 1 2 3; do echo $i; sleep 0.15; done"
+
+      assert ["1", "2", "3"] =
+               Forcola.stream_lines("sh", ["-c", script], [idle_timeout_ms: 400], 2_000)
+               |> Enum.to_list()
     end
 
     test "a missing binary yields an empty stream rather than raising" do

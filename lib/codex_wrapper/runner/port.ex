@@ -11,16 +11,16 @@ defmodule CodexWrapper.Runner.Port do
   pipe. For strict termination, use `CodexWrapper.Runner.Forcola` (see
   `CodexWrapper.Runner` and #48).
 
-  `stream_lines/4` uses the same `/bin/sh` wrapper in `:line` mode, and
-  treats `timeout` as an *idle* bound: the wait for the next line, not
-  for the whole run. That is what the streaming paths have always done.
+  `stream_lines/4` uses the same `/bin/sh` wrapper in `:line` mode. Its
+  `timeout` bounds the whole run; `opts[:idle_timeout_ms]` independently
+  bounds the wait between output frames.
   """
 
   @behaviour CodexWrapper.Runner
 
   alias CodexWrapper.Command
 
-  # Idle bound between output frames when the caller sets no timeout.
+  # Idle bound between output frames when the caller sets no idle timeout.
   @default_idle_timeout_ms 300_000
 
   # How long to wait for the port to confirm it closed when the stream halts.
@@ -43,7 +43,7 @@ defmodule CodexWrapper.Runner.Port do
 
   @impl true
   def stream_lines(binary, args, opts, timeout) do
-    idle_timeout = timeout || @default_idle_timeout_ms
+    idle_timeout = Keyword.get(opts, :idle_timeout_ms, @default_idle_timeout_ms)
 
     port_opts =
       [
@@ -56,32 +56,63 @@ defmodule CodexWrapper.Runner.Port do
       |> maybe_add_env(Keyword.get(opts, :env, []))
 
     Stream.resource(
-      fn -> {Port.open({:spawn_executable, "/bin/sh"}, port_opts), :running} end,
-      fn state -> next_line(state, idle_timeout) end,
+      fn ->
+        deadline = if timeout, do: System.monotonic_time(:millisecond) + timeout
+        {Port.open({:spawn_executable, "/bin/sh"}, port_opts), :running, deadline}
+      end,
+      fn state -> next_line(state, idle_timeout, timeout) end,
       &close_port/1
     )
   end
 
-  defp next_line({port, :running} = state, idle_timeout) do
-    receive do
-      {^port, {:data, {:eol, line}}} -> {[line], state}
-      {^port, {:data, {:noeol, _partial}}} -> {[], state}
-      {^port, {:exit_status, _code}} -> {:halt, {port, :exited}}
-    after
-      idle_timeout -> {:halt, state}
+  defp next_line({_port, :timed_out, _deadline} = state, _idle_timeout, _timeout),
+    do: {:halt, state}
+
+  defp next_line({port, :running, deadline} = state, idle_timeout, timeout) do
+    remaining = if deadline, do: max(deadline - System.monotonic_time(:millisecond), 0)
+
+    if remaining == 0 do
+      # A slow consumer may resume after the deadline even though the CLI
+      # already exited. Prefer a queued completion over a false timeout.
+      receive do
+        {^port, {:exit_status, _code}} -> {:halt, {port, :exited, deadline}}
+      after
+        0 -> {[{:error, {:timeout, timeout}}], {port, :timed_out, deadline}}
+      end
+    else
+      wait = min_timeout(idle_timeout, remaining)
+
+      receive do
+        {^port, {:data, {:eol, line}}} -> {[line], state}
+        {^port, {:data, {:noeol, _partial}}} -> {[], state}
+        {^port, {:exit_status, _code}} -> {:halt, {port, :exited, deadline}}
+      after
+        wait ->
+          reason =
+            if deadline && (is_nil(idle_timeout) || remaining <= idle_timeout),
+              do: {:timeout, timeout},
+              else: {:idle_timeout, idle_timeout}
+
+          {[{:error, reason}], {port, :timed_out, deadline}}
+      end
     end
   end
+
+  defp min_timeout(nil, nil), do: :infinity
+  defp min_timeout(nil, other), do: other
+  defp min_timeout(other, nil), do: other
+  defp min_timeout(left, right), do: min(left, right)
 
   # The process exited on its own, so the port is already gone. Asking it
   # to close would just block until `@close_timeout_ms` for a `:closed`
   # that can never arrive.
-  defp close_port({_port, :exited}), do: :ok
+  defp close_port({_port, :exited, _deadline}), do: :ok
 
   # Halted early (`Enum.take/2`, an idle timeout, an exception downstream)
   # with the process still alive: close the port, which closes its stdout
   # and leaves `codex` to die when it next writes. Use
   # `CodexWrapper.Runner.Forcola` if you need the group killed outright.
-  defp close_port({port, :running}) do
+  defp close_port({port, _status, _deadline}) do
     send(port, {self(), :close})
 
     receive do

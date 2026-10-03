@@ -91,6 +91,7 @@ defmodule CodexWrapper do
     * `:working_dir` - Working directory
     * `:env` - Environment variables
     * `:timeout` - Timeout in ms
+    * `:idle_timeout_ms` - Maximum gap between streaming output frames in ms
     * `:verbose` - Compatibility option: only `false` is supported; `true` raises
 
   Exec options (passed to `Exec` builder):
@@ -140,7 +141,8 @@ defmodule CodexWrapper do
   end
 
   @doc """
-  Execute a prompt and return a lazy stream of `%JsonLineEvent{}`.
+  Execute a prompt and return a lazy stream of `%JsonLineEvent{}` values.
+  A streaming timeout emits a final `%CodexWrapper.StreamError{}`.
 
   See `exec/2` for available options.
 
@@ -170,6 +172,7 @@ defmodule CodexWrapper do
     * `:working_dir` - Working directory
     * `:env` - Environment variables
     * `:timeout` - Timeout in ms
+    * `:idle_timeout_ms` - Maximum gap between streaming output frames in ms
     * `:verbose` - Compatibility option: only `false` is supported; `true` raises
 
   Review options (passed to `Review` builder):
@@ -202,7 +205,7 @@ defmodule CodexWrapper do
 
   # --- Private ---
 
-  @config_keys [:binary, :working_dir, :env, :timeout, :verbose]
+  @config_keys [:binary, :working_dir, :env, :timeout, :idle_timeout_ms, :verbose]
 
   defp split_opts(opts) do
     Enum.split_with(opts, fn {k, _v} -> k in @config_keys end)

@@ -117,19 +117,42 @@ defmodule CodexWrapper.RunnerTest do
       assert ["y", "y"] = Port.stream_lines("yes", [], [], 5_000) |> Enum.take(2)
     end
 
-    test "the timeout is an idle bound between lines, not a whole-run bound" do
-      # Three lines 150ms apart is 450ms of runtime under a 400ms bound:
-      # a whole-run bound would truncate it, an idle bound does not.
+    test "the idle deadline is independent of the whole-run deadline" do
+      # Three lines 150ms apart outlast a 400ms idle interval, but each
+      # individual gap stays below that interval.
       script = "for i in 1 2 3; do echo $i; sleep 0.15; done"
 
       assert ["1", "2", "3"] =
-               Port.stream_lines("sh", ["-c", script], [], 400) |> Enum.to_list()
+               Port.stream_lines("sh", ["-c", script], [idle_timeout_ms: 400], 2_000)
+               |> Enum.to_list()
     end
 
-    test "an idle producer is cut off at the timeout" do
+    test "an idle producer yields a typed idle timeout" do
       script = "echo first; sleep 10; echo never"
 
-      assert ["first"] = Port.stream_lines("sh", ["-c", script], [], 300) |> Enum.to_list()
+      assert ["first", {:error, {:idle_timeout, 300}}] =
+               Port.stream_lines("sh", ["-c", script], [idle_timeout_ms: 300], 5_000)
+               |> Enum.to_list()
+    end
+
+    test "steady output cannot exceed the whole-run deadline" do
+      script = "while true; do echo tick; sleep 0.05; done"
+
+      assert lines =
+               Port.stream_lines("sh", ["-c", script], [idle_timeout_ms: 500], 300)
+               |> Enum.to_list()
+
+      assert List.last(lines) == {:error, {:timeout, 300}}
+      assert Enum.any?(lines, &(&1 == "tick"))
+    end
+
+    test "a completed command is not timed out by a slow consumer" do
+      assert ["ok"] =
+               Port.stream_lines("sh", ["-c", "echo ok"], [], 200)
+               |> Enum.map(fn line ->
+                 Process.sleep(350)
+                 line
+               end)
     end
 
     test "a completed stream returns promptly, without a close handshake" do

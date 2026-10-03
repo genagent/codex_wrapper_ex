@@ -16,6 +16,7 @@ defmodule CodexWrapper.Config do
           working_dir: String.t() | nil,
           env: [{String.t(), String.t()}],
           timeout: pos_integer() | nil,
+          idle_timeout_ms: pos_integer() | nil,
           verbose: boolean()
         }
 
@@ -23,6 +24,7 @@ defmodule CodexWrapper.Config do
     :binary,
     :working_dir,
     :timeout,
+    :idle_timeout_ms,
     env: [],
     verbose: false
   ]
@@ -35,7 +37,9 @@ defmodule CodexWrapper.Config do
     * `:binary` - Path to the codex binary (default: auto-discover)
     * `:working_dir` - Working directory for the subprocess
     * `:env` - List of `{key, value}` environment variable tuples
-    * `:timeout` - Command timeout in milliseconds
+    * `:timeout` - Whole-command timeout in milliseconds for streaming runs
+    * `:idle_timeout_ms` - Maximum gap between output frames while streaming
+      (default: 300,000 ms)
     * `:verbose` - Compatibility option. Only `false` is supported; `true` raises
       `ArgumentError` before the CLI is launched, because the Codex CLI does not
       define a `--verbose` flag
@@ -50,6 +54,7 @@ defmodule CodexWrapper.Config do
       working_dir: opts[:working_dir],
       env: opts[:env] || [],
       timeout: opts[:timeout],
+      idle_timeout_ms: Keyword.get(opts, :idle_timeout_ms, 300_000),
       verbose: verbose
     }
   end
@@ -112,5 +117,6 @@ defmodule CodexWrapper.Config do
     config
     |> cmd_opts()
     |> Keyword.put(:stderr_to_stdout, false)
+    |> Keyword.put(:idle_timeout_ms, config.idle_timeout_ms)
   end
 end
