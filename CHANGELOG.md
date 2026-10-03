@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.6](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.5...v0.5.6) (2026-10-03)
+
+
+### Bug Fixes
+
+* **stream:** report independent idle and turn timeouts ([#109](https://github.com/genagent/codex_wrapper_ex/issues/109)) ([e4852d6](https://github.com/genagent/codex_wrapper_ex/commit/e4852d6afce712c24778c9692684788bb4c46aea))
+
 ## [0.5.5](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.4...v0.5.5) (2026-10-02)
 
 
