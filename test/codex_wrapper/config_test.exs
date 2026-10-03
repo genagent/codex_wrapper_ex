@@ -10,14 +10,18 @@ defmodule CodexWrapper.ConfigTest do
       assert config.working_dir == nil
       assert config.env == []
       assert config.timeout == nil
+      assert config.idle_timeout_ms == 300_000
       assert config.verbose == false
     end
 
     test "with explicit options" do
-      config = Config.new(working_dir: "/tmp", verbose: false, timeout: 5000)
+      config =
+        Config.new(working_dir: "/tmp", verbose: false, timeout: 5000, idle_timeout_ms: 800)
+
       assert config.working_dir == "/tmp"
       assert config.verbose == false
       assert config.timeout == 5000
+      assert config.idle_timeout_ms == 800
     end
 
     test "with explicit binary" do
@@ -101,5 +105,10 @@ defmodule CodexWrapper.ConfigTest do
       opts = Config.cmd_opts(config)
       assert {:env, [{"KEY", "val"}]} in opts
     end
+  end
+
+  test "stream options retain the independent idle bound" do
+    assert Config.stream_opts(Config.new(idle_timeout_ms: 800))[:idle_timeout_ms] == 800
+    assert Config.stream_opts(Config.new(idle_timeout_ms: nil))[:idle_timeout_ms] == nil
   end
 end

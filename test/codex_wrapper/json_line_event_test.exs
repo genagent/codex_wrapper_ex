@@ -50,6 +50,16 @@ defmodule CodexWrapper.JsonLineEventTest do
     end
   end
 
+  test "parse_stream preserves a typed runner timeout after valid NDJSON" do
+    lines = [~s({"type":"thread.started","thread_id":"t1"}), {:error, {:idle_timeout, 300}}]
+
+    assert [
+             %JsonLineEvent{event_type: "thread.started"},
+             %CodexWrapper.StreamError{reason: {:idle_timeout, 300}}
+           ] =
+             JsonLineEvent.parse_stream(lines) |> Enum.to_list()
+  end
+
   describe "accessor functions" do
     setup do
       line = ~s({"type":"item.completed","item":{"id":"i1"},"session_id":"s1"})

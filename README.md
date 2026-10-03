@@ -626,7 +626,8 @@ Exception metadata adds the standard `:kind`, `:reason`, and
 | `:binary` | `String.t()` | Path to `codex` binary (auto-discovered if omitted) |
 | `:working_dir` | `String.t()` | Working directory for the subprocess |
 | `:env` | `[{String.t(), String.t()}]` | Environment variables |
-| `:timeout` | `pos_integer()` | Command timeout in milliseconds |
+| `:timeout` | `pos_integer()` | Whole-command timeout in milliseconds; defaults to no whole-run bound for Port streams |
+| `:idle_timeout_ms` | `pos_integer() \| nil` | Maximum gap between output frames in a stream; defaults to 300,000 ms, or set `nil` to disable |
 | `:verbose` | `boolean()` | Compatibility option: only `false` is supported; `true` raises before CLI execution |
 
 ### Runners: process-group cleanup with forcola
@@ -671,7 +672,7 @@ config :codex_wrapper, runner: :forcola
 the dependency stays optional and the default path is unchanged.
 `forcola` requires a finite timeout, so when a command's `:timeout` is
 `nil` the run falls back to `:forcola_default_timeout_ms` (default
-`300_000`) instead of running unbounded:
+`300_000`) instead of running unbounded for synchronous commands:
 
 ```elixir
 config :codex_wrapper, runner: :forcola, forcola_default_timeout_ms: 120_000
@@ -683,12 +684,17 @@ The streaming paths go through the same selection, so `:forcola` gets
 their process group killed too -- on an early `Enum.take/2`, on a
 timeout, or when the BEAM dies.
 
-The two runners enforce a command's `:timeout` differently for a stream.
-`Runner.Port` treats it as an *idle* bound (the wait for the next line,
-what the streaming paths have always used, defaulting to `300_000` when
-`:timeout` is `nil`). `Runner.Forcola` treats it as forcola's whole-run
-bound, falling back to `:forcola_default_timeout_ms` the same way the
-synchronous path does.
+Both runners use `:timeout` as the whole-run deadline and
+`:idle_timeout_ms` as the independent gap between output frames. A
+Port stream has no whole-run deadline when `:timeout` is `nil`; a
+Forcola stream uses `:forcola_default_stream_timeout_ms` (default
+3,600,000 ms) instead. The existing `:forcola_default_timeout_ms`
+setting also applies to streams unless the stream-specific setting is
+provided. If either
+bound expires, the stream emits a final `%CodexWrapper.StreamError{}`
+with `{:timeout, ms}` or `{:idle_timeout, ms}` in its `reason` field.
+Direct `Runner.stream_lines/4` consumers receive the corresponding
+`{:error, reason}` item before the stream ends.
 
 A non-zero exit ends a stream without raising on either runner -- the
 `Enumerable` simply finishes. Use `execute/2` when the exit code matters.

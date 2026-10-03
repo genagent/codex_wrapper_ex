@@ -18,9 +18,10 @@ if Code.ensure_loaded?(Forcola) do
     until the timeout elapsed; the optional dependency's supported
     `~> 0.3.5` and `~> 0.4.0` lines (see `mix.exs`) both include the fix.
 
-    forcola requires a finite whole-run bound, so a command with no
-    `:timeout` runs under `forcola_default_timeout_ms` instead of
-    unbounded. See `effective_timeout/1`.
+    forcola requires a finite whole-run bound. Synchronous commands with
+    no `:timeout` use `forcola_default_timeout_ms` (five minutes by
+    default); streams use `forcola_default_stream_timeout_ms` (one hour
+    by default), so a long active turn is not cut off after five minutes.
 
     `stream_lines/4` is backed by `Forcola.Stream.lines/2`, so the
     NDJSON paths (`Exec.stream/2` and friends) get the same group kill
@@ -40,6 +41,7 @@ if Code.ensure_loaded?(Forcola) do
     # timeout we still want group-kill-on-BEAM-death, so we substitute a
     # configurable default rather than falling back to the leaky path.
     @default_timeout_ms 300_000
+    @default_stream_timeout_ms 3_600_000
 
     @doc """
     The bound forcola will enforce for `timeout`.
@@ -54,6 +56,20 @@ if Code.ensure_loaded?(Forcola) do
     end
 
     def effective_timeout(timeout), do: timeout
+
+    defp stream_timeout(nil) do
+      Application.get_env(
+        :codex_wrapper,
+        :forcola_default_stream_timeout_ms,
+        Application.get_env(
+          :codex_wrapper,
+          :forcola_default_timeout_ms,
+          @default_stream_timeout_ms
+        )
+      )
+    end
+
+    defp stream_timeout(timeout), do: timeout
 
     @impl true
     def run(binary, args, opts, timeout) do
@@ -78,13 +94,21 @@ if Code.ensure_loaded?(Forcola) do
 
     @impl true
     def stream_lines(binary, args, opts, timeout) do
+      idle_timeout_ms = Keyword.get(opts, :idle_timeout_ms, 300_000)
+      timeout = stream_timeout(timeout)
+
       stream_opts =
-        [timeout_ms: effective_timeout(timeout), merge_stderr: merge_stderr?(opts)] ++
+        [timeout_ms: timeout, merge_stderr: merge_stderr?(opts)] ++
           Keyword.take(opts, [:cd, :env])
+
+      stream_opts =
+        if idle_timeout_ms,
+          do: Keyword.put(stream_opts, :idle_timeout_ms, idle_timeout_ms),
+          else: stream_opts
 
       [binary | args]
       |> Forcola.Stream.lines(stream_opts)
-      |> halt_on_error()
+      |> halt_on_error(timeout, idle_timeout_ms)
     end
 
     # `Forcola.Stream.lines/2` raises on a non-zero exit, a signal, a
@@ -92,10 +116,10 @@ if Code.ensure_loaded?(Forcola) do
     # the stream instead (see `CodexWrapper.Runner`), so translate.
     # forcola has already killed the process group by the time it raises,
     # so there is nothing left to clean up.
-    defp halt_on_error(enum) do
+    defp halt_on_error(enum, timeout, idle_timeout_ms) do
       Stream.resource(
         fn -> &Enumerable.reduce(enum, &1, fn line, _acc -> {:suspend, line} end) end,
-        &pull/1,
+        &pull(&1, timeout, idle_timeout_ms),
         fn
           :done -> :ok
           cont -> halt_continuation(cont)
@@ -103,16 +127,21 @@ if Code.ensure_loaded?(Forcola) do
       )
     end
 
-    defp pull(:done), do: {:halt, :done}
+    defp pull(:done, _timeout, _idle_timeout_ms), do: {:halt, :done}
 
-    defp pull(cont) do
+    defp pull(cont, timeout, idle_timeout_ms) do
       case cont.({:cont, nil}) do
         {:suspended, line, next} -> {[line], next}
         {:done, _acc} -> {:halt, :done}
         {:halted, _acc} -> {:halt, :done}
       end
     rescue
-      Forcola.Stream.Error -> {:halt, :done}
+      error in Forcola.Stream.Error ->
+        cond do
+          error.idle_timed_out -> {[{:error, {:idle_timeout, idle_timeout_ms}}], :done}
+          error.timed_out -> {[{:error, {:timeout, timeout}}], :done}
+          true -> {:halt, :done}
+        end
     end
 
     # Halting the suspended reduction is what kills the process group on an

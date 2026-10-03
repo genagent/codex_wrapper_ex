@@ -33,7 +33,8 @@ defmodule CodexWrapper.Runner do
   NDJSON paths (`Exec.stream/2`, `ExecResume.stream/2`, `Review.stream/2`,
   and `Session.stream/3` through the first two). Lines arrive without
   their trailing newline, stderr is never merged into them, and the
-  stream ends when the process exits.
+  stream ends when the process exits. A deadline emits a final
+  `{:error, {:timeout, ms}}` or `{:error, {:idle_timeout, ms}}` item.
 
   A non-zero exit ends the stream *without* raising, on either runner --
   the same silent-halt the streaming paths have always had. Callers that
@@ -71,10 +72,11 @@ defmodule CodexWrapper.Runner do
   process is terminated when the stream halts (including an early
   `Enum.take/2`).
 
-  `timeout` is enforced as each runner can: `Runner.Port` applies it as
-  an idle bound between output frames (what the streaming paths have
-  always done), `Runner.Forcola` as forcola's whole-run bound with a
-  process-group kill. `nil` means each runner's own default.
+  `timeout` bounds the whole run. The independent
+  `opts[:idle_timeout_ms]` bounds gaps between output frames; `nil`
+  disables the idle bound. When `timeout` is `nil`, `Runner.Port` has no
+  whole-run bound and `Runner.Forcola` uses its configurable default.
+  Both built-in runners default to a 300,000 ms idle bound.
 
   Optional. `CodexWrapper.Runner.stream_lines/4` falls back to
   `Runner.Port` for runners that do not implement it.

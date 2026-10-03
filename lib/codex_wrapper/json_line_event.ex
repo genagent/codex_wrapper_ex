@@ -67,17 +67,22 @@ defmodule CodexWrapper.JsonLineEvent do
   Parse a lazy stream of NDJSON lines into a lazy stream of events.
 
   The streaming counterpart of `parse_lines/1`: same silent drop of
-  lines that do not parse, no buffering of the whole run. Used by
+  lines that do not parse, no buffering of the whole run. A runner's
+  final `{:error, reason}` becomes `%CodexWrapper.StreamError{}`. Used by
   `Exec.stream/2`, `ExecResume.stream/2`, and `Review.stream/2` over the
   lines their `CodexWrapper.Runner` produces.
   """
   @spec parse_stream(Enumerable.t()) :: Enumerable.t()
   def parse_stream(lines) do
-    Stream.flat_map(lines, fn line ->
-      case parse(line) do
-        {:ok, event} -> [event]
-        {:error, _} -> []
-      end
+    Stream.flat_map(lines, fn
+      {:error, reason} ->
+        [%CodexWrapper.StreamError{reason: reason}]
+
+      line when is_binary(line) ->
+        case parse(line) do
+          {:ok, event} -> [event]
+          {:error, _} -> []
+        end
     end)
   end
 
