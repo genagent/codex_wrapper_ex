@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.8...v0.6.0) (2026-10-04)
+
+
+### Features
+
+* observe native thread identity during one-shot execution (closes [#116](https://github.com/genagent/codex_wrapper_ex/issues/116)) ([#117](https://github.com/genagent/codex_wrapper_ex/issues/117)) ([ab84047](https://github.com/genagent/codex_wrapper_ex/commit/ab840476eee3f4faa14957ede3d9c560044efec7))
+
 ## [0.5.8](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.7...v0.5.8) (2026-10-03)
 
 
