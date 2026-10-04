@@ -630,6 +630,47 @@ Exception metadata adds the standard `:kind`, `:reason`, and
 | `:idle_timeout_ms` | `pos_integer() \| nil` | Maximum gap between output frames in a stream; defaults to 300,000 ms, or set `nil` to disable |
 | `:verbose` | `boolean()` | Compatibility option: only `false` is supported; `true` raises before CLI execution |
 
+### Observing native thread identity before completion
+
+The opt-in `:session_observer` execution option announces the first valid
+stdout `thread.started` ID while a one-shot call is still running:
+
+```elixir
+reference = make_ref()
+CodexWrapper.exec("continue the work",
+  session_observer: {observer_pid, reference},
+  working_dir: "/path/to/project", timeout: 300_000)
+```
+
+The local observer receives
+`{reference, %CodexWrapper.SessionObservation{session_id: id, source: :thread_started}}`.
+The execution caller sends this message before returning, so its later terminal
+reply to the same observer cannot overtake the observation. Callers own
+persistence and must reject references from stale execution attempts. An
+observed identity is not proof of completion; the call can still fail or time out.
+
+The same option works with `Exec.execute/3`, `ExecResume.execute/3`,
+`ExecFork.execute/3`, `ExecFork.fork/3`, their `execute_json/3` variants and
+`CodexWrapper.exec_json/2`. It requires `Runner.Forcola` and Forcola 0.6.0 or
+later in the supported dependency range. Invalid observer options and runners
+without observed execution fail before spawning. A dead observer is harmless;
+no caller callback runs and no silent Port fallback occurs.
+
+Observed commands force `--json`. Their `Result` preserves every stdout and
+stderr byte in separate fields, including final output without a newline.
+Legacy `execute/2` and convenience calls without an observer retain merged
+output. Exit codes and process success semantics stay the same. Fork identity
+comes only from valid stdout `thread.started`, while stderr remains available
+for failure diagnostics.
+
+Malformed, blank, duplicate and conflicting later announcements are ignored.
+Identity framing is limited to 1 MiB per line; an oversized line is skipped
+until the next newline without truncating the final raw result. The whole-run
+deadline, including Forcola's configured default for a nil timeout, stays in
+force. Completion waits for transport termination even after `turn.completed`.
+The execution caller owns and cleans up its helper; owner death closes the
+Forcola port and triggers process-group cleanup.
+
 ### Runners: process-group cleanup with forcola
 
 Every `codex` subprocess -- the synchronous commands
@@ -652,7 +693,7 @@ required.
 
 ```elixir
 # mix.exs
-{:forcola, "~> 0.3.5 or ~> 0.4.0"}
+{:forcola, "~> 0.6.0"}
 ```
 
 ```elixir
