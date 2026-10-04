@@ -18,7 +18,7 @@ servers -- all from Elixir.
 ```elixir
 def deps do
   [
-    {:codex_wrapper, "~> 0.5.8"}
+    {:codex_wrapper, "~> 0.6.0"}
   ]
 end
 ```
