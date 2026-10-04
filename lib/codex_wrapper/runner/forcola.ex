@@ -15,8 +15,8 @@ if Code.ensure_loaded?(Forcola) do
     ... < /dev/null` wrapper the default runner needs is unnecessary
     here. Before 0.3.4 forcola left the child's stdin open, and `codex
     exec` would print "Reading additional input from stdin..." and hang
-    until the timeout elapsed; the optional dependency's supported
-    `~> 0.3.5` and `~> 0.4.0` lines (see `mix.exs`) both include the fix.
+    until the timeout elapsed. The `~> 0.6.0` dependency floor includes
+    this fix and raw output observation for one-shot execution.
 
     forcola requires a finite whole-run bound. Synchronous commands with
     no `:timeout` use `forcola_default_timeout_ms` (five minutes by
@@ -80,6 +80,38 @@ if Code.ensure_loaded?(Forcola) do
       case Forcola.run([binary | args], forcola_opts) do
         {:ok, %Forcola.Result{status: status, stdout: stdout}} when is_integer(status) ->
           {:ok, {stdout, status}}
+
+        {:ok, %Forcola.Result{status: {:signal, signal}}} ->
+          {:error, {:signal, signal}}
+
+        {:error, {:timeout, _partial}} ->
+          {:error, :timeout}
+
+        {:error, {:spawn, reason}} ->
+          {:error, {:spawn, reason}}
+      end
+    end
+
+    @doc """
+    Observe raw output while preserving the terminal one-shot outcome.
+
+    Requires Forcola's `:output_observer` support. The execution caller
+    receives raw chunks from its owned helper before this function returns.
+    Stderr stays separate.
+    """
+    @spec run_observed(String.t(), [String.t()], keyword(), timeout() | nil, {pid(), reference()}) ::
+            {:ok, {binary(), non_neg_integer(), binary()}}
+            | {:error, CodexWrapper.Runner.error()}
+    @impl true
+    def run_observed(binary, args, opts, timeout, target) do
+      forcola_opts =
+        [timeout_ms: effective_timeout(timeout), merge_stderr: false, output_observer: target] ++
+          Keyword.take(opts, [:cd, :env])
+
+      case Forcola.run([binary | args], forcola_opts) do
+        {:ok, %Forcola.Result{status: status, stdout: stdout, stderr: stderr}}
+        when is_integer(status) ->
+          {:ok, {stdout, status, stderr}}
 
         {:ok, %Forcola.Result{status: {:signal, signal}}} ->
           {:error, {:signal, signal}}

@@ -3,6 +3,8 @@ defmodule CodexWrapper.Result do
   Result from a completed exec command.
 
   Maps to the Rust `CommandOutput` -- the raw output from `System.cmd`.
+  Legacy execution merges stderr into stdout. Opt-in observed execution
+  preserves the exact bytes in separate stdout and stderr fields.
   """
 
   @type t :: %__MODULE__{

@@ -306,6 +306,24 @@ defmodule CodexWrapper.ExecFork do
   end
 
   @doc """
+  Execute with optional early session observation. See
+  `CodexWrapper.ObservedExecution` for options, ordering and raw-output semantics.
+  An empty options list delegates to legacy `execute/2`.
+  """
+  @spec execute(t(), Config.t(), keyword()) :: {:ok, Result.t()} | {:error, term()}
+  def execute(%__MODULE__{} = exec, %Config{} = config, []), do: execute(exec, config)
+
+  def execute(%__MODULE__{} = exec, %Config{} = config, opts) do
+    with :ok <- validate(exec) do
+      Telemetry.span([:codex_wrapper, :exec], Telemetry.exec_metadata(:exec_fork, exec), fn ->
+        __MODULE__
+        |> CodexWrapper.ObservedExecution.run(exec, config, opts)
+        |> check_supported(exec)
+      end)
+    end
+  end
+
+  @doc """
   Execute with `--json` and return the parsed `%JsonLineEvent{}` list.
   """
   @spec execute_json(t(), Config.t()) :: {:ok, [JsonLineEvent.t()]} | {:error, error()}
@@ -313,6 +331,18 @@ defmodule CodexWrapper.ExecFork do
     case execute(%{exec | json: true}, config) do
       {:ok, result} -> {:ok, JsonLineEvent.parse_lines(result.stdout)}
       {:error, _} = err -> err
+    end
+  end
+
+  @doc """
+  Execute with `--json` and optional session observation, then parse stdout.
+  See `execute/3` for execution options.
+  """
+  @spec execute_json(t(), Config.t(), keyword()) :: {:ok, [JsonLineEvent.t()]} | {:error, term()}
+  def execute_json(%__MODULE__{} = exec, %Config{} = config, opts) do
+    case execute(%{exec | json: true}, config, opts) do
+      {:ok, result} -> {:ok, JsonLineEvent.parse_lines(result.stdout)}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -340,19 +370,46 @@ defmodule CodexWrapper.ExecFork do
     end
   end
 
-  defp to_fork_result(%Result{success: false, exit_code: code} = result, _source),
+  @doc """
+  Fork with optional early observation and retain the existing fork result shape.
+  Observed identity is accepted only from valid stdout `thread.started` events.
+  See `CodexWrapper.ObservedExecution` for execution options.
+  """
+  @spec fork(t(), Config.t(), keyword()) :: {:ok, fork_result()} | {:error, error()}
+  def fork(%__MODULE__{} = exec, %Config{} = config, []), do: fork(exec, config)
+
+  def fork(%__MODULE__{} = exec, %Config{} = config, opts) do
+    with {:ok, %Result{} = result} <- execute(%{exec | json: true}, config, opts) do
+      to_fork_result(result, exec.session_id, :observed)
+    end
+  end
+
+  defp to_fork_result(result, source, mode \\ :legacy)
+
+  defp to_fork_result(%Result{success: false, exit_code: code} = result, _source, _mode),
     do: {:error, {:exit, code, result}}
 
-  defp to_fork_result(%Result{} = result, source) do
+  defp to_fork_result(%Result{} = result, source, mode) do
     events = JsonLineEvent.parse_lines(result.stdout)
 
-    case Session.extract_session_id(events) do
+    case fork_session_id(events, mode) do
       id when is_binary(id) and id != "" ->
         {:ok, %{session_id: id, source_session_id: source, result: result, events: events}}
 
       _ ->
         {:error, {:missing_session_id, result}}
     end
+  end
+
+  defp fork_session_id(events, :legacy), do: Session.extract_session_id(events)
+
+  defp fork_session_id(events, :observed) do
+    Enum.find_value(events, fn event ->
+      case CodexWrapper.SessionObservation.parse(event.raw) do
+        nil -> nil
+        observation -> observation.session_id
+      end
+    end)
   end
 
   @doc """
@@ -421,7 +478,9 @@ defmodule CodexWrapper.ExecFork do
   # An older CLI parses `fork` as the `codex exec` prompt and then trips
   # over the session ID (`unexpected argument '<id>' found`); a CLI that
   # grew subcommand parsing but not `fork` would say so directly.
-  defp check_supported({:ok, %Result{success: false, stdout: out}} = ok, exec) do
+  defp check_supported({:ok, %Result{success: false, stdout: out, stderr: stderr}} = ok, exec) do
+    out = out <> stderr
+
     if String.contains?(out, "unexpected argument '#{exec.session_id}'") or
          String.contains?(out, "unrecognized subcommand 'fork'") do
       {:error, {:unsupported, :exec_fork}}

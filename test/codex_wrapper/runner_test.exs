@@ -136,7 +136,7 @@ defmodule CodexWrapper.RunnerTest do
     end
 
     test "steady output cannot exceed the whole-run deadline" do
-      script = "while true; do echo tick; sleep 0.05; done"
+      script = "while true; do echo tick || exit; sleep 0.05; done"
 
       assert lines =
                Port.stream_lines("sh", ["-c", script], [idle_timeout_ms: 500], 300)

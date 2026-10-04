@@ -223,6 +223,20 @@ defmodule CodexWrapper.ExecResume do
   end
 
   @doc """
+  Execute with optional early session observation. See
+  `CodexWrapper.ObservedExecution` for options, ordering and raw-output semantics.
+  An empty options list delegates to legacy `execute/2`.
+  """
+  @spec execute(t(), Config.t(), keyword()) :: {:ok, Result.t()} | {:error, term()}
+  def execute(%__MODULE__{} = exec, %Config{} = config, []), do: execute(exec, config)
+
+  def execute(%__MODULE__{} = exec, %Config{} = config, opts) do
+    Telemetry.span([:codex_wrapper, :exec], Telemetry.exec_metadata(:exec_resume, exec), fn ->
+      CodexWrapper.ObservedExecution.run(__MODULE__, exec, config, opts)
+    end)
+  end
+
+  @doc """
   Execute the command with `--json` and return a list of parsed `%JsonLineEvent{}`.
 
   Forces `--json` on the command, runs synchronously, then parses
@@ -235,6 +249,18 @@ defmodule CodexWrapper.ExecResume do
     case execute(exec, config) do
       {:ok, result} -> {:ok, JsonLineEvent.parse_lines(result.stdout)}
       {:error, _} = err -> err
+    end
+  end
+
+  @doc """
+  Execute with `--json` and optional session observation, then parse stdout.
+  See `execute/3` for execution options.
+  """
+  @spec execute_json(t(), Config.t(), keyword()) :: {:ok, [JsonLineEvent.t()]} | {:error, term()}
+  def execute_json(%__MODULE__{} = exec, %Config{} = config, opts) do
+    case execute(%{exec | json: true}, config, opts) do
+      {:ok, result} -> {:ok, JsonLineEvent.parse_lines(result.stdout)}
+      {:error, _reason} = error -> error
     end
   end
 

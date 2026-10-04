@@ -16,7 +16,7 @@ defmodule CodexWrapper.Runner do
   runner:
 
       # mix.exs
-      {:forcola, "~> 0.3.5 or ~> 0.4.0"}
+      {:forcola, "~> 0.6.0"}
 
       # config/config.exs
       config :codex_wrapper, runner: CodexWrapper.Runner.Forcola
@@ -100,7 +100,18 @@ defmodule CodexWrapper.Runner do
   """
   @callback effective_timeout(timeout :: timeout() | nil) :: timeout() | nil
 
-  @optional_callbacks effective_timeout: 1, stream_lines: 4
+  @doc """
+  Optional observed one-shot transport. Send raw stdout/stderr chunks as
+  `{reference, {:stdout | :stderr, bytes}}` to the given target directly from
+  the process calling this function, before returning its terminal outcome.
+  Preserve all bytes and keep stderr separate regardless of legacy opts.
+  `CodexWrapper.ObservedExecution` owns the calling helper and forwards typed
+  identity from the execution caller. No runner fallback is allowed.
+  """
+  @callback run_observed(String.t(), [String.t()], opts(), timeout() | nil, {pid(), reference()}) ::
+              {:ok, {binary(), non_neg_integer(), binary()}} | {:error, error()}
+
+  @optional_callbacks effective_timeout: 1, stream_lines: 4, run_observed: 5
 
   @doc """
   The configured runner module, `CodexWrapper.Runner.Port` by default.
