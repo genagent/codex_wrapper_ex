@@ -34,7 +34,8 @@ defmodule CodexWrapper.Config do
 
   ## Options
 
-    * `:binary` - Path to the codex binary (default: auto-discover)
+    * `:binary` - Literal executable path or name on `PATH` (default: auto-discover).
+      Shell commands and unexpanded `~` or environment-variable paths are not supported.
     * `:working_dir` - Working directory for the subprocess
     * `:env` - List of `{key, value}` environment variable tuples
     * `:timeout` - Whole-command timeout in milliseconds for streaming runs

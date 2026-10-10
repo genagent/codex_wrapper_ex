@@ -64,6 +64,11 @@ defmodule CodexWrapper do
   a default when no timeout is supplied. Process cleanup follows the configured
   runner's behavior.
 
+  `:binary` is a literal executable path or name searched on `PATH`, not a
+  shell command. Expand `~` and environment variables before passing a path.
+  Errors follow the runner: for example, the Port runner reports a missing
+  executable as `{:error, {:exit, 127, output}}` from `/bin/sh`.
+
   ## Examples
 
       CodexWrapper.raw(["version"])

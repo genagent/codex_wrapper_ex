@@ -189,6 +189,32 @@ defmodule CodexWrapper.RawTest do
              )
   end
 
+  test "Port returns an exit error for a nonexistent working directory without exiting the caller" do
+    Application.put_env(:codex_wrapper, :runner, CodexWrapper.Runner.Port)
+    binary = Path.expand("../fixtures/fake_codex.sh", __DIR__)
+
+    missing =
+      Path.join(System.tmp_dir!(), "missing-raw-cwd-#{System.unique_integer([:positive])}")
+
+    assert {:error, {:exit, code, output}} =
+             CodexWrapper.raw(["version"], binary: binary, working_dir: missing, timeout: 1_000)
+
+    assert code != 0
+    assert is_binary(output)
+  end
+
+  test "Port reports a missing literal executable as shell exit 127" do
+    Application.put_env(:codex_wrapper, :runner, CodexWrapper.Runner.Port)
+
+    missing =
+      Path.join(System.tmp_dir!(), "missing-raw-binary-#{System.unique_integer([:positive])}")
+
+    assert {:error, {:exit, 127, output}} =
+             CodexWrapper.raw(["version"], binary: missing, timeout: 1_000)
+
+    assert output =~ missing
+  end
+
   defp raw(opts \\ []) do
     CodexWrapper.raw(
       ["version"],
