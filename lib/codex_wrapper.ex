@@ -26,7 +26,7 @@ defmodule CodexWrapper do
   """
 
   alias CodexWrapper.Commands.{Completion, Version}
-  alias CodexWrapper.{Config, Exec, JsonLineEvent, Result, Review}
+  alias CodexWrapper.{Config, Exec, JsonLineEvent, Result, Review, Runner}
 
   @doc """
   Get the Codex CLI version.
@@ -59,6 +59,11 @@ defmodule CodexWrapper do
 
   This is the escape hatch for new or experimental CLI subcommands.
 
+  Respects the configured `CodexWrapper.Runner` and the `:timeout` option.
+  Timeout errors report the runner's effective timeout, which may substitute
+  a default when no timeout is supplied. Process cleanup follows the configured
+  runner's behavior.
+
   ## Examples
 
       CodexWrapper.raw(["version"])
@@ -70,9 +75,13 @@ defmodule CodexWrapper do
     all_args = Config.base_args(config) ++ args
     cmd_opts = Config.cmd_opts(config)
 
-    case System.cmd(config.binary, all_args, cmd_opts) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    runner = Runner.impl()
+
+    case runner.run(config.binary, all_args, cmd_opts, config.timeout) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, :timeout} -> {:error, {:timeout, Runner.effective_timeout(runner, config.timeout)}}
+      {:error, reason} -> {:error, reason}
     end
   rescue
     e in ErlangError -> {:error, {:system_cmd, e}}
