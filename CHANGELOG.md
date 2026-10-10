@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/genagent/codex_wrapper_ex/compare/v0.6.0...v0.6.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* route raw commands through the configured runner ([#120](https://github.com/genagent/codex_wrapper_ex/issues/120)) ([b5fea54](https://github.com/genagent/codex_wrapper_ex/commit/b5fea541b3a23917182d0139322189de552f3e05))
+
 ## [0.6.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.5.8...v0.6.0) (2026-10-04)
 
 
