@@ -679,9 +679,25 @@ Every `codex` subprocess -- the synchronous commands
 `ExecResume.stream/2`, `Review.stream/2`, `Session.stream/3`) -- routes
 through a runner module. The default, `CodexWrapper.Runner.Port`, runs `codex` under a
 `/bin/sh` wrapper with stdin closed and bounds it with a BEAM `Task`
-timeout. On timeout the BEAM task is killed, but no signal reaches the
-`codex` process group, so `codex` and any stdio MCP servers it spawned
-can survive, reparented to init.
+timeout.
+
+When the port closes -- a timeout, a stream idle timeout or early halt, the
+owning process dying, or the BEAM dying -- the wrapper's watchdog signals
+the `codex` process: SIGINT first, SIGTERM two seconds later, SIGKILL one
+second after that, stopping once the process is gone. Codex installs its own
+SIGINT handler and uses it to stop tool children it placed in other process
+groups. The shell starts `codex` as a background job, which begins with
+SIGINT ignored, so a program without such a handler is stopped by the
+SIGTERM step. The caller is not held up by this schedule.
+
+This is not a process-tree guarantee. Only the `codex` process is signalled,
+so a child that Codex does not stop itself, a daemonized process, or a stdio
+MCP server can survive. A process that writes to the closed port can also die
+of a broken pipe before its SIGINT handler finishes. Signals are sent by pid,
+so a pid reused between the target's exit and the watchdog's cancellation
+could be signalled by mistake; the window is kept short, not removed. The
+schedule needs an executable `/bin/sleep` to escalate; without one only
+SIGINT is sent.
 
 The optional [`forcola`](https://hexdocs.pm/forcola) dependency provides
 `CodexWrapper.Runner.Forcola`, which routes runs through a Rust shim that
@@ -788,7 +804,7 @@ streams.
 | `CodexWrapper.Telemetry` | `:telemetry` span wrappers for exec paths |
 | `CodexWrapper.Command` | Behaviour for CLI commands |
 | `CodexWrapper.Runner` | Behaviour selecting how subprocesses execute and stream |
-| `CodexWrapper.Runner.Port` | Default runner (`/bin/sh` Port with closed stdin) |
+| `CodexWrapper.Runner.Port` | Default runner (`/bin/sh` Port with closed stdin and INT/TERM/KILL cleanup of `codex`) |
 | `CodexWrapper.Runner.Forcola` | Optional leak-free runner via `forcola` |
 | `CodexWrapper.Commands.Auth` | Authentication (login/logout/status) |
 | `CodexWrapper.Commands.Features` | Feature flag management |

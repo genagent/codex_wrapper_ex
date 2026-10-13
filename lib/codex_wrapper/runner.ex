@@ -9,9 +9,15 @@ defmodule CodexWrapper.Runner do
   default is `CodexWrapper.Runner.Port`, the `/bin/sh`-with-closed-stdin
   `Port` the library has always used.
 
-  For leak-free execution -- where a timeout or BEAM death kills the whole
-  `codex` process group (the CLI and every stdio MCP server it spawned)
-  rather than abandoning it -- add
+  When its port closes (a timeout, an early stream halt, the owning
+  process dying, or the BEAM dying) the default runner signals the `codex`
+  process: SIGINT, so a cooperating `codex` can stop its tool children,
+  then SIGTERM and SIGKILL if it stays alive. It does not signal the
+  process group, so processes `codex` does not stop itself can survive; see
+  `CodexWrapper.Runner.Port` for the exact behavior and limits.
+
+  To kill the whole `codex` process group on a timeout or BEAM death (the
+  CLI and every stdio MCP server it spawned), add
   [`forcola`](https://hex.pm/packages/forcola) to your deps and select its
   runner:
 
@@ -71,8 +77,9 @@ defmodule CodexWrapper.Runner do
 
   Returns a lazy `Enumerable` of lines without their trailing newlines.
   Opening the process is deferred until the stream is consumed, and the
-  process is terminated when the stream halts (including an early
-  `Enum.take/2`).
+  process is signalled for termination when the stream halts (including an
+  early `Enum.take/2`); `Runner.Port` and `Runner.Forcola` differ in how
+  far that reaches.
 
   `timeout` bounds the whole run. The independent
   `opts[:idle_timeout_ms]` bounds gaps between output frames; `nil`

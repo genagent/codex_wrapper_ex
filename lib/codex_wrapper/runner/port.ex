@@ -4,12 +4,45 @@ defmodule CodexWrapper.Runner.Port do
   `/dev/null` (Codex CLI hangs if stdin is inherited from the parent),
   wrapped in a `Task` for timeout enforcement.
 
-  This is the execution path the library has always used. On a timeout it
-  brutal-kills the `Task`, which closes the port but sends no signal to the
-  OS process group. `codex` and any subprocess it spawned (stdio MCP
-  servers, tool helpers) may keep running until they next touch a closed
-  pipe. For strict termination, use `CodexWrapper.Runner.Forcola` (see
-  `CodexWrapper.Runner` and #48).
+  ## Cleanup
+
+  The `/bin/sh` supervisor runs
+  `codex` as a child and watches the port's stdin pipe. Stdin reaches EOF
+  when the port closes: a `run/4` timeout, a stream whole-run or idle
+  timeout, an early halt, an oversized line, an exception in the stream
+  consumer, death of the process that owns the port, or death of the BEAM.
+  The watchdog then signals the `codex` process itself, with SIGINT first,
+  SIGTERM two seconds later and SIGKILL one second after that, stopping as
+  soon as the process is gone. The caller does not wait for this schedule.
+  A normal exit cancels the watchdog. During escalation, its current sleep
+  finishes and is reaped before the watchdog exits; all cleanup helpers are
+  joined without delaying a caller that already closed its port.
+
+  What this does and does not cover:
+
+    * SIGINT is only useful to a program that installs its own handler.
+      Codex does, and uses it to stop tool children it placed in other
+      process groups. The shell starts `codex` as a background job, which
+      POSIX says begins with SIGINT ignored, so a program without its own
+      handler is stopped by the SIGTERM step instead. Descendants also
+      inherit ignored SIGINT unless they reset it.
+    * Only the `codex` process is signalled. Children that Codex does not
+      stop itself, daemonized processes and stdio MCP servers can outlive
+      it. There is no process-tree guarantee. `CodexWrapper.Runner.Forcola`
+      owns the target's process group, but separate groups can still survive.
+    * Closing the port also closes `codex`'s stdout, so a process that
+      writes while the port closes can die of a broken pipe before its
+      SIGINT handler finishes.
+    * Signals go to a pid. If the target exits and its pid is reused before
+      the watchdog is cancelled, the watchdog could signal the wrong
+      process. The supervisor cancels the watchdog as soon as it reaps the
+      target, which makes this window short, not nonexistent.
+    * The schedule is three seconds of sleeping, not a real-time bound.
+      Without an executable `/bin/sleep` the watchdog sends SIGINT only.
+    * Killing the `/bin/sh` wrapper or its watchdog directly (SIGKILL)
+      defeats the mechanism.
+
+  Cleanup needs no dependency or native binary beyond `/bin/sh`.
 
   `stream_lines/4` uses the same `/bin/sh` wrapper in `:line` mode. Its
   `timeout` bounds the whole run; `opts[:idle_timeout_ms]` independently
@@ -172,9 +205,9 @@ defmodule CodexWrapper.Runner.Port do
   end
 
   # Halted early (`Enum.take/2`, an idle timeout, an exception downstream)
-  # with the process still alive: close the port, which closes its stdout
-  # and leaves `codex` to die when it next writes. Use
-  # `CodexWrapper.Runner.Forcola` if you need the group killed outright.
+  # with the process still alive: close the port. That closes the wrapper's
+  # stdin, which starts the INT/TERM/KILL schedule described in the
+  # moduledoc. This returns once the port is closed, not once `codex` is gone.
   defp close_port({port, _status, _deadline}) do
     send(port, {self(), :close})
 
