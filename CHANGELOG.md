@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/genagent/codex_wrapper_ex/compare/v0.6.1...v0.6.2) (2026-10-13)
+
+
+### Bug Fixes
+
+* **port:** preserve literal CLI arguments ([#123](https://github.com/genagent/codex_wrapper_ex/issues/123)) ([97d0815](https://github.com/genagent/codex_wrapper_ex/commit/97d0815c001c9dc860390ddaeee2a7d18bbe15d4))
+
 ## [0.6.1](https://github.com/genagent/codex_wrapper_ex/compare/v0.6.0...v0.6.1) (2026-10-10)
 
 
