@@ -90,7 +90,10 @@ defmodule CodexWrapper.Command do
   # watchdog stops after INT instead of escalating at once. Cancellation sets
   # a flag: a foreground sleep finishes under its original parent and is
   # reaped before the watcher exits. This avoids orphan timers and the
-  # signal/PID-assignment race of starting an asynchronous timer.
+  # signal/PID-assignment race of starting an asynchronous timer. A startup
+  # USR1 handshake confirms that cancellation is installed before a quick
+  # target's exit can make the supervisor cancel its watcher. The handler is
+  # removed before waiting for the target, so it cannot interrupt that wait.
   @doc false
   @spec shell_cmd_args(String.t(), [String.t()], keyword()) :: [String.t()]
   def shell_cmd_args(binary, args, opts \\ []) do
@@ -106,6 +109,9 @@ defmodule CodexWrapper.Command do
 
   defp supervisor_script(target_redirects) do
     """
+    watcher_ready=0
+    trap 'watcher_ready=1' USR1
+    supervisor=$$
     exec 3<&0
     "$@" #{target_redirects} &
     t=$!
@@ -113,6 +119,7 @@ defmodule CodexWrapper.Command do
       stopping=0
       in_grace=0
       trap 'stopping=1; [ "$in_grace" = 1 ] || exit 0' TERM
+      kill -s USR1 "$supervisor" || exit 0
       while read -r _line; do :; done
       [ "$stopping" = 0 ] || exit 0
       kill -s INT "$t" || exit 0
@@ -127,6 +134,10 @@ defmodule CodexWrapper.Command do
       exit 0
     ) <&3 3<&- >/dev/null 2>&1 &
     w=$!
+    while [ "$watcher_ready" = 0 ]; do
+      kill -0 "$w" || break
+    done
+    trap - USR1
     exec 3<&- >/dev/null 2>&1
     wait "$t"
     s=$?

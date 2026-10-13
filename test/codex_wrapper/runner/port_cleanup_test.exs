@@ -106,7 +106,12 @@ defmodule CodexWrapper.Runner.PortCleanupTest do
       assert wait_until(fn -> not alive?(info.target) end, 1_000)
       # A running timer must still belong to the watcher, never to init.
       Enum.each(timers, fn timer ->
-        assert not alive?(timer) or timer in children_of(watchdog)
+        case process_snapshot(timer) do
+          nil -> :ok
+          {"Z" <> _, _parent} -> :ok
+          {_status, ^watchdog} -> :ok
+          other -> flunk("timer lost its owner: #{inspect(other)}")
+        end
       end)
 
       assert_all_gone(all_pids(info) ++ timers, 6_000)
@@ -344,8 +349,17 @@ defmodule CodexWrapper.Runner.PortCleanupTest do
     assert info.tool_pgid != info.target_pgid
 
     if Keyword.get(opts, :watchdog, true) do
+      assert wait_until(
+               fn ->
+                 children_of(info.supervisor) -- [info.target] != [] or
+                   not alive?(info.supervisor)
+               end,
+               timeout_ms
+             )
+
       watchdogs = children_of(info.supervisor) -- [info.target]
-      assert [_watchdog] = watchdogs
+      assert length(watchdogs) <= 1
+      if watchdogs == [], do: assert(wait_until(fn -> not alive?(info.supervisor) end, 1_000))
       Map.put(info, :watchdogs, watchdogs)
     else
       Map.put(info, :watchdogs, [])
@@ -419,6 +433,21 @@ defmodule CodexWrapper.Runner.PortCleanupTest do
 
       _ ->
         false
+    end
+  end
+
+  defp process_snapshot(pid) do
+    case System.cmd("ps", ["-o", "stat=", "-o", "ppid=", "-p", Integer.to_string(pid)],
+           stderr_to_stdout: true
+         ) do
+      {output, 0} ->
+        case String.split(output) do
+          [status, parent] -> {status, String.to_integer(parent)}
+          [] -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 
