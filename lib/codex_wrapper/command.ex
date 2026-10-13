@@ -87,7 +87,10 @@ defmodule CodexWrapper.Command do
   # remove it.
   #
   # /bin/sleep is absolute because callers may replace PATH. Without it the
-  # watchdog stops after INT instead of escalating at once.
+  # watchdog stops after INT instead of escalating at once. Cancellation sets
+  # a flag: a foreground sleep finishes under its original parent and is
+  # reaped before the watcher exits. This avoids orphan timers and the
+  # signal/PID-assignment race of starting an asynchronous timer.
   @doc false
   @spec shell_cmd_args(String.t(), [String.t()], keyword()) :: [String.t()]
   def shell_cmd_args(binary, args, opts \\ []) do
@@ -107,12 +110,19 @@ defmodule CodexWrapper.Command do
     "$@" #{target_redirects} &
     t=$!
     (
+      stopping=0
+      in_grace=0
+      trap 'stopping=1; [ "$in_grace" = 1 ] || exit 0' TERM
       while read -r _line; do :; done
+      [ "$stopping" = 0 ] || exit 0
       kill -s INT "$t" || exit 0
       [ -x /bin/sleep ] || exit 0
+      in_grace=1
       /bin/sleep #{@int_grace_s}
+      [ "$stopping" = 0 ] || exit 0
       kill -s TERM "$t" || exit 0
       /bin/sleep #{@term_grace_s}
+      [ "$stopping" = 0 ] || exit 0
       kill -s KILL "$t"
       exit 0
     ) <&3 3<&- >/dev/null 2>&1 &

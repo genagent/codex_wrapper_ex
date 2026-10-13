@@ -3,7 +3,6 @@ defmodule CodexWrapper.Runner.PortCleanupTest do
   # escalation, so they should not compete with each other for scheduling.
   use ExUnit.Case, async: false
 
-  alias CodexWrapper.Command
   alias CodexWrapper.Runner.Port, as: PortRunner
 
   @moduletag :tmp_dir
@@ -19,25 +18,6 @@ defmodule CodexWrapper.Runner.PortCleanupTest do
 
   if @perl == nil do
     @moduletag skip: "perl is required for the cleanup probe"
-  end
-
-  describe "shell_cmd_args/3" do
-    test "passes the executable and arguments as positional parameters" do
-      args = ["a b", "", "$(touch x)", "*"]
-
-      assert ["-c", script, "codex-wrapper", "my codex; id" | ^args] =
-               Command.shell_cmd_args("my codex; id", args)
-
-      refute script =~ "my codex"
-      refute script =~ "touch"
-      assert script =~ ~s("$@" </dev/null 3<&- &)
-      refute script =~ ~s("$@" </dev/null 3<&- 2>&1 &)
-    end
-
-    test "capture_stderr merges stderr into the target only" do
-      assert ["-c", script | _] = Command.shell_cmd_args("codex", [], capture_stderr: true)
-      assert script =~ ~s("$@" </dev/null 3<&- 2>&1 &)
-    end
   end
 
   describe "stdin and status" do
@@ -83,25 +63,54 @@ defmodule CodexWrapper.Runner.PortCleanupTest do
   end
 
   describe "normal exit" do
-    test "cancels and reaps the watchdog without waiting for the cleanup schedule" do
-      script = ~S"""
-      echo "$PPID"
-      echo "$$"
-      ps -A -o pid= -o ppid=
-      """
+    test "joins the observed watchdog without starting escalation", %{tmp_dir: dir} do
+      task = Task.async(fn -> PortRunner.run(@perl, probe_args(dir, "normal"), [], 10_000) end)
+      info = await_ready!(dir)
+      assert [_] = info.watchdogs
 
-      {micros, result} = :timer.tc(fn -> PortRunner.run("sh", ["-c", script], [], 5_000) end)
-      assert {:ok, {output, 0}} = result
+      {micros, result} =
+        :timer.tc(fn ->
+          File.write!(Path.join(dir, "release-exit"), "go")
+          Task.await(task, 5_000)
+        end)
+
+      assert result == {:ok, {"", 7}}
       assert micros < 2_000_000
+      assert_all_gone(all_pids(info), 1_000)
+      assert signals(dir) == []
+    end
+  end
 
-      [supervisor, target | process_table] = String.split(output, "\n", trim: true)
-      supervisor = String.to_integer(supervisor)
-      target = String.to_integer(target)
-      watchdogs = children_in(process_table, supervisor) -- [target]
+  for {mode, signal} <- [{"int", "INT"}, {"ignore-int", "TERM"}] do
+    @mode mode
+    @signal signal
+    test "joins the timer when the target exits during #{@signal} grace", %{tmp_dir: dir} do
+      File.write!(Path.join(dir, "hold-signal"), "hold")
 
-      # The target ran while the supervisor and its watchdog were alive.
-      assert [_watchdog] = watchdogs
-      assert_all_gone([supervisor | watchdogs], 1_000)
+      assert ["ready"] =
+               PortRunner.stream_lines(@perl, probe_args(dir, @mode, "announce"), [], 30_000)
+               |> Enum.take(1)
+
+      info = await_ready!(dir)
+      [watchdog] = info.watchdogs
+
+      assert wait_until(
+               fn -> Enum.any?(signals(dir), fn {name, _} -> name == @signal end) end,
+               4_000
+             )
+
+      assert wait_until(fn -> children_of(watchdog) != [] end, 1_000)
+      timers = children_of(watchdog)
+      assert [_timer] = timers
+      File.write!(Path.join(dir, "release-signal"), "go")
+      assert wait_until(fn -> not alive?(info.target) end, 1_000)
+      # A running timer must still belong to the watcher, never to init.
+      Enum.each(timers, fn timer ->
+        assert not alive?(timer) or timer in children_of(watchdog)
+      end)
+
+      assert_all_gone(all_pids(info) ++ timers, 6_000)
+      assert File.read!(Path.join(dir, "events")) == "tool-reaped\n"
     end
   end
 
@@ -155,12 +164,17 @@ defmodule CodexWrapper.Runner.PortCleanupTest do
     test "idle timeout", %{tmp_dir: dir} do
       task =
         Task.async(fn ->
-          PortRunner.stream_lines(@perl, probe_args(dir, "int"), [idle_timeout_ms: 1_500], 30_000)
+          PortRunner.stream_lines(
+            @perl,
+            probe_args(dir, "int"),
+            [idle_timeout_ms: @trigger_ms],
+            30_000
+          )
           |> Enum.to_list()
         end)
 
       info = await_ready!(dir)
-      assert Task.await(task, 10_000) == [{:error, {:idle_timeout, 1_500}}]
+      assert Task.await(task, 10_000) == [{:error, {:idle_timeout, @trigger_ms}}]
       assert_cooperative_int(dir, info)
     end
 
@@ -215,7 +229,7 @@ defmodule CodexWrapper.Runner.PortCleanupTest do
     end
 
     test "the caller is not held through KILL escalation", %{tmp_dir: dir} do
-      timeout = 1_500
+      timeout = @trigger_ms
 
       task =
         Task.async(fn ->
@@ -302,7 +316,7 @@ defmodule CodexWrapper.Runner.PortCleanupTest do
       :binary,
       :exit_status,
       :stderr_to_stdout,
-      args: ["-pa", ebin, "-e", code]
+      args: ["--erl", "+S 2:2 +SDcpu 1 +SDio 1", "-pa", ebin, "-e", code]
     ])
   end
 

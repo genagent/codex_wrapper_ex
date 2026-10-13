@@ -6,7 +6,7 @@ defmodule CodexWrapper.Runner.Port do
 
   ## Cleanup
 
-  The `/bin/sh` wrapper (`CodexWrapper.Command.shell_cmd_args/3`) runs
+  The `/bin/sh` supervisor runs
   `codex` as a child and watches the port's stdin pipe. Stdin reaches EOF
   when the port closes: a `run/4` timeout, a stream whole-run or idle
   timeout, an early halt, an oversized line, an exception in the stream
@@ -14,7 +14,9 @@ defmodule CodexWrapper.Runner.Port do
   The watchdog then signals the `codex` process itself, with SIGINT first,
   SIGTERM two seconds later and SIGKILL one second after that, stopping as
   soon as the process is gone. The caller does not wait for this schedule.
-  A normal exit cancels the watchdog.
+  A normal exit cancels the watchdog. During escalation, its current sleep
+  finishes and is reaped before the watchdog exits; all cleanup helpers are
+  joined without delaying a caller that already closed its port.
 
   What this does and does not cover:
 
@@ -22,12 +24,12 @@ defmodule CodexWrapper.Runner.Port do
       Codex does, and uses it to stop tool children it placed in other
       process groups. The shell starts `codex` as a background job, which
       POSIX says begins with SIGINT ignored, so a program without its own
-      handler is stopped by the SIGTERM step instead.
+      handler is stopped by the SIGTERM step instead. Descendants also
+      inherit ignored SIGINT unless they reset it.
     * Only the `codex` process is signalled. Children that Codex does not
       stop itself, daemonized processes and stdio MCP servers can outlive
-      it. There is no process-tree or process-group guarantee; use
-      `CodexWrapper.Runner.Forcola` for that (see `CodexWrapper.Runner`
-      and #48).
+      it. There is no process-tree guarantee. `CodexWrapper.Runner.Forcola`
+      owns the target's process group, but separate groups can still survive.
     * Closing the port also closes `codex`'s stdout, so a process that
       writes while the port closes can die of a broken pipe before its
       SIGINT handler finishes.

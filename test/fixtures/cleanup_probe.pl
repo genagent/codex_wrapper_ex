@@ -80,17 +80,26 @@ sub reap_tool {
     append_line('events', 'tool-reaped');
 }
 
+sub release_signal {
+    return unless -e "$dir/hold-signal";
+    my $deadline = time() + 5;
+    until (-e "$dir/release-signal") {
+        die "signal gate not released\n" if time() > $deadline;
+        sleep(0.01);
+    }
+}
+
 sub record {
     my ($name) = @_;
     append_line('signals', sprintf('%s %.3f', $name, time()));
 }
 
-if ($mode eq 'int') {
-    $SIG{INT} = sub { record('INT'); reap_tool(); exit 0 };
+if ($mode eq 'int' || $mode eq 'normal') {
+    $SIG{INT} = sub { record('INT'); release_signal(); reap_tool(); exit 0 };
     $SIG{TERM} = sub { record('TERM'); exit 1 };
 } elsif ($mode eq 'ignore-int') {
     $SIG{INT} = sub { record('INT') };
-    $SIG{TERM} = sub { record('TERM'); reap_tool(); exit 0 };
+    $SIG{TERM} = sub { record('TERM'); release_signal(); reap_tool(); exit 0 };
 } elsif ($mode eq 'ignore-all') {
     $SIG{INT} = sub { record('INT') };
     $SIG{TERM} = sub { record('TERM') };
@@ -122,4 +131,13 @@ if ($output eq 'announce') {
     print 'x' x 1_200_000, "\n";
 }
 
+if ($mode eq 'normal') {
+    my $deadline = time() + 5;
+    until (-e "$dir/release-exit") {
+        die "normal exit gate not released\n" if time() > $deadline;
+        sleep(0.01);
+    }
+    reap_tool();
+    exit 7;
+}
 while (1) { sleep(0.05) }
