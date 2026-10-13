@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/genagent/codex_wrapper_ex/compare/v0.6.2...v0.6.3) (2026-10-13)
+
+
+### Bug Fixes
+
+* **port:** interrupt native processes when their owner closes ([#125](https://github.com/genagent/codex_wrapper_ex/issues/125)) ([dc82463](https://github.com/genagent/codex_wrapper_ex/commit/dc82463c2594495befcfe420e774ef7071df9258))
+
 ## [0.6.2](https://github.com/genagent/codex_wrapper_ex/compare/v0.6.1...v0.6.2) (2026-10-13)
 
 
