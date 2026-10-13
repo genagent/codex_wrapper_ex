@@ -6,9 +6,10 @@ if Code.ensure_loaded?(Forcola) do
     Every `codex` invocation runs under forcola's Rust shim, which places
     the CLI in its own process group and kills the whole group (SIGTERM,
     then SIGKILL) on timeout or when the BEAM dies. That reaps `codex` and
-    every stdio MCP server it spawned together, where the default
-    `CodexWrapper.Runner.Port` would leave them running as orphans (see
-    #48 and closed #33).
+    every stdio MCP server it spawned together. The default
+    `CodexWrapper.Runner.Port` signals only the `codex` process (SIGINT,
+    SIGTERM, SIGKILL), so anything `codex` does not stop itself can outlive
+    it (see #48 and closed #33).
 
     forcola closes the child's stdin immediately after spawn (forcola
     0.3.4, forcola#67), so `codex` sees EOF naturally -- the `/bin/sh
