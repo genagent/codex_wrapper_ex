@@ -54,13 +54,14 @@ defmodule CodexWrapper.Command do
   @doc false
   @spec shell_cmd_args(String.t(), [String.t()], keyword()) :: [String.t()]
   def shell_cmd_args(binary, args, opts \\ []) do
-    # Always quote the executable: even paths without spaces can contain
-    # shell operators or glob characters. Argument escaping stays unchanged.
-    escaped_binary = "'" <> String.replace(binary, "'", "'\\''") <> "'"
-    escaped_args = Enum.map_join(args, " ", &shell_escape/1)
-    redirect = if Keyword.get(opts, :capture_stderr, false), do: " 2>&1", else: ""
-    shell_cmd = "#{escaped_binary} #{escaped_args} < /dev/null#{redirect}"
-    ["-c", shell_cmd]
+    script =
+      if Keyword.get(opts, :capture_stderr, false),
+        do: ~s(exec "$@" </dev/null 2>&1),
+        else: ~s(exec "$@" </dev/null)
+
+    # sh -c consumes the first positional argument as $0. Keep a deliberate
+    # label there so "$@" includes the executable and every argument verbatim.
+    ["-c", script, "codex-wrapper", binary | args]
   end
 
   @doc false
