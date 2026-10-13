@@ -56,8 +56,8 @@ defmodule CodexWrapper.Command do
   def shell_cmd_args(binary, args, opts \\ []) do
     script =
       if Keyword.get(opts, :capture_stderr, false),
-        do: ~s(exec "$@" </dev/null 2>&1),
-        else: ~s(exec "$@" </dev/null)
+        do: ~s("$@" </dev/null 2>&1),
+        else: ~s("$@" </dev/null)
 
     # sh -c consumes the first positional argument as $0. Keep a deliberate
     # label there so "$@" includes the executable and every argument verbatim.
