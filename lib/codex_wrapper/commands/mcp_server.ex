@@ -4,6 +4,18 @@ defmodule CodexWrapper.Commands.McpServer do
 
   Wraps `codex mcp-server`.
 
+  This command now uses the config's runner instead of `System.cmd`.
+  With the default Port runner, execution uses `/bin/sh`, stdin from
+  `/dev/null`, and a SIGINT/TERM/KILL watchdog. A missing binary returns
+  `{:error, {:exit, 127, output}}` instead of raising.
+  Under Forcola, when neither config `:timeout` nor runner option `:timeout_ms`
+  is set, the wall bound is the snapshotted `:forcola_default_timeout_ms`
+  (300,000 ms unless configured), after which
+  the command is cancelled and returns `{:error, {:timeout, milliseconds}}`.
+  Set an explicit config `:timeout` for the intended server lifetime under
+  Forcola. The Port runner has no whole-run bound unless `:timeout` is set;
+  its closed stdin does not provide a duplex MCP connection.
+
   ## Options
 
     * `:config` - list of `"key=value"` config overrides (`-c`)
@@ -32,9 +44,10 @@ defmodule CodexWrapper.Commands.McpServer do
   def start(%Config{} = config, opts \\ []) do
     args = Config.base_args(config) ++ ["mcp-server"] ++ build_args(opts)
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 

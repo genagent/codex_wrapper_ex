@@ -1,7 +1,16 @@
 if Code.ensure_loaded?(Forcola) do
   defmodule CodexWrapper.Runner.Forcola do
     @moduledoc """
-    Leak-free runner backed by [forcola](https://hex.pm/packages/forcola).
+    Process-group runner backed by [forcola](https://hex.pm/packages/forcola).
+
+    Evidenced one-shot execution requires Forcola 0.7's reviewed PR #97 run/2
+    contract and matching shim. Forcola 0.6 cannot establish these facts and is
+    rejected before invoking `run_evidenced/5`. Legacy run/stream callbacks
+    remain available.
+    New options pass through without global environment or application changes.
+    Native exit, cancellation reason, transport, cleanup confirmation/scope and
+    guard close are retained independently. Missing evidence remains unknown.
+    A confirmed process group never proves containment of escaped descendants.
 
     Every `codex` invocation runs under forcola's Rust shim, which places
     the CLI in its own process group and kills the whole group (SIGTERM,
@@ -16,8 +25,8 @@ if Code.ensure_loaded?(Forcola) do
     ... < /dev/null` wrapper the default runner needs is unnecessary
     here. Before 0.3.4 forcola left the child's stdin open, and `codex
     exec` would print "Reading additional input from stdin..." and hang
-    until the timeout elapsed. The `~> 0.6.0` dependency floor includes
-    this fix and raw output observation for one-shot execution.
+    until the timeout elapsed. The `~> 0.7.0` dependency floor includes
+    this fix, raw output observation and bounded one-shot termination evidence.
 
     forcola requires a finite whole-run bound. Synchronous commands with
     no `:timeout` use `forcola_default_timeout_ms` (five minutes by
@@ -43,6 +52,16 @@ if Code.ensure_loaded?(Forcola) do
     # configurable default rather than falling back to the leaky path.
     @default_timeout_ms 300_000
     @default_stream_timeout_ms 3_600_000
+    @transport_options [
+      :shim_path,
+      :env_mode,
+      :timeout_ms,
+      :idle_timeout_ms,
+      :max_output_bytes,
+      :kill_grace_ms,
+      :interrupt_signal,
+      :interrupt_grace_ms
+    ]
 
     @doc """
     The bound forcola will enforce for `timeout`.
@@ -72,57 +91,122 @@ if Code.ensure_loaded?(Forcola) do
 
     defp stream_timeout(timeout), do: timeout
 
+    @doc false
+    @impl true
+    def validate_options(options) do
+      CodexWrapper.Config.validate_runner_options!(options)
+
+      if Keyword.keys(options) -- [:timeout_ms, :kill_grace_ms, :shim_path] == [] or
+           (Code.ensure_loaded?(Forcola.Run) and Map.has_key?(struct(Forcola.Result), :evidence)),
+         do: :ok,
+         else: {:error, {:forcola_contract_unavailable, :run_evidence}}
+    end
+
     @impl true
     def run(binary, args, opts, timeout) do
-      forcola_opts =
-        [timeout_ms: effective_timeout(timeout), merge_stderr: merge_stderr?(opts)] ++
-          Keyword.take(opts, [:cd, :env])
-
-      case Forcola.run([binary | args], forcola_opts) do
-        {:ok, %Forcola.Result{status: status, stdout: stdout}} when is_integer(status) ->
-          {:ok, {stdout, status}}
-
-        {:ok, %Forcola.Result{status: {:signal, signal}}} ->
-          {:error, {:signal, signal}}
-
-        {:error, {:timeout, _partial}} ->
-          {:error, :timeout}
-
-        {:error, {:spawn, reason}} ->
-          {:error, {:spawn, reason}}
+      with :ok <- validate_options(Keyword.take(opts, @transport_options)) do
+        Forcola.run([binary | args], one_shot_opts(opts, timeout))
+        |> project(
+          timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end),
+          false
+        )
       end
     end
 
-    @doc """
-    Observe raw output while preserving the terminal one-shot outcome.
-
-    Requires Forcola's `:output_observer` support. The execution caller
-    receives raw chunks from its owned helper before this function returns.
-    Stderr stays separate.
-    """
-    @spec run_observed(String.t(), [String.t()], keyword(), timeout() | nil, {pid(), reference()}) ::
-            {:ok, {binary(), non_neg_integer(), binary()}}
-            | {:error, CodexWrapper.Runner.error()}
     @impl true
     def run_observed(binary, args, opts, timeout, target) do
-      forcola_opts =
-        [timeout_ms: effective_timeout(timeout), merge_stderr: false, output_observer: target] ++
-          Keyword.take(opts, [:cd, :env])
+      with :ok <- validate_options(Keyword.take(opts, @transport_options)) do
+        forcola_opts =
+          one_shot_opts(opts, timeout)
+          |> Keyword.put(:merge_stderr, false)
+          |> Keyword.put(:output_observer, target)
 
-      case Forcola.run([binary | args], forcola_opts) do
-        {:ok, %Forcola.Result{status: status, stdout: stdout, stderr: stderr}}
-        when is_integer(status) ->
-          {:ok, {stdout, status, stderr}}
-
-        {:ok, %Forcola.Result{status: {:signal, signal}}} ->
-          {:error, {:signal, signal}}
-
-        {:error, {:timeout, _partial}} ->
-          {:error, :timeout}
-
-        {:error, {:spawn, reason}} ->
-          {:error, {:spawn, reason}}
+        Forcola.run([binary | args], forcola_opts)
+        |> project(
+          timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end),
+          true
+        )
       end
+    end
+
+    @impl true
+    def validate_evidence do
+      validate_options(max_output_bytes: 1_048_576)
+    end
+
+    @impl true
+    def run_evidenced(binary, args, opts, timeout, target) do
+      # A 0.6 collector cannot prove the new contract. Refuse before Forcola.run
+      # or shim discovery; an unresolved 0.6 dependency must not silently run it.
+      case validate_evidence() do
+        :ok ->
+          bound = timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end)
+
+          forcola_opts =
+            one_shot_opts(opts, timeout)
+            |> Keyword.put(:merge_stderr, false)
+            |> Keyword.put(:output_observer, target)
+            |> Keyword.put_new(:idle_timeout_ms, @default_timeout_ms)
+            |> Keyword.put_new(:max_output_bytes, 1_048_576)
+
+          outcome = Forcola.run([binary | args], forcola_opts)
+          {project(outcome, bound, true), evidence(outcome)}
+
+        {:error, _} = error ->
+          {error, %{termination: :pre_spawn}}
+      end
+    end
+
+    defp one_shot_opts(opts, timeout) do
+      Keyword.take(opts, [
+        :cd,
+        :env,
+        :shim_path,
+        :env_mode,
+        :idle_timeout_ms,
+        :max_output_bytes,
+        :interrupt_signal,
+        :interrupt_grace_ms,
+        :kill_grace_ms
+      ])
+      |> Keyword.put(
+        :timeout_ms,
+        timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end)
+      )
+      |> Keyword.put(:merge_stderr, merge_stderr?(opts))
+    end
+
+    defp project(
+           {:ok, %Forcola.Result{status: status, stdout: stdout, stderr: stderr}},
+           _,
+           observed
+         )
+         when is_integer(status) do
+      if observed, do: {:ok, {stdout, status, stderr}}, else: {:ok, {stdout, status}}
+    end
+
+    defp project({:ok, %Forcola.Result{status: {:signal, signal}}}, _, _),
+      do: {:error, {:signal, signal}}
+
+    defp project({:error, {:timeout, _partial}}, _timeout, false), do: {:error, :timeout}
+    defp project({:error, {:timeout, _partial}}, timeout, true), do: {:error, {:timeout, timeout}}
+
+    defp project({:error, {reason, _partial}}, _, _)
+         when reason in [:idle_timeout, :max_output_bytes, :observer_overflow],
+         do: {:error, reason}
+
+    defp project({:error, {:spawn, reason}}, _, _), do: {:error, {:spawn, reason}}
+
+    defp evidence({:ok, %Forcola.Result{} = result}), do: result_evidence(result)
+    defp evidence({:error, {_, %Forcola.Result{} = result}}), do: result_evidence(result)
+
+    defp evidence({:error, {:spawn, {_, %Forcola.Result{} = result}}}),
+      do: result_evidence(result)
+
+    defp evidence({:error, {:spawn, reason}}), do: %{termination: {:spawn, reason}}
+
+    defp result_evidence(result) do
+      Map.merge(Map.get(result, :evidence) || %{}, %{stdout: result.stdout, stderr: result.stderr})
     end
 
     @impl true

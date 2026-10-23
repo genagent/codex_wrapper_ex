@@ -19,9 +19,10 @@ defmodule CodexWrapper.Commands.Mcp do
     args = Config.base_args(config) ++ ["mcp", "list"]
     args = if opts[:json], do: args ++ ["--json"], else: args
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> parse_output(output, opts[:json])
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> parse_output(output, opts[:json])
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -37,9 +38,10 @@ defmodule CodexWrapper.Commands.Mcp do
     args = Config.base_args(config) ++ ["mcp", "get", name]
     args = if opts[:json], do: args ++ ["--json"], else: args
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> parse_output(output, opts[:json])
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> parse_output(output, opts[:json])
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -82,9 +84,10 @@ defmodule CodexWrapper.Commands.Mcp do
     args = args ++ env_args(env) ++ oauth_args(opts)
     args = args ++ ["--", command] ++ command_args
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -101,9 +104,10 @@ defmodule CodexWrapper.Commands.Mcp do
 
     args = args ++ oauth_args(opts)
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -114,9 +118,10 @@ defmodule CodexWrapper.Commands.Mcp do
   def remove(%Config{} = config, name) do
     args = Config.base_args(config) ++ ["mcp", "remove", name]
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -135,9 +140,10 @@ defmodule CodexWrapper.Commands.Mcp do
   def login(%Config{} = config, name, opts \\ []) do
     args = Config.base_args(config) ++ ["mcp", "login", name] ++ scopes_args(opts[:scopes])
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -148,9 +154,10 @@ defmodule CodexWrapper.Commands.Mcp do
   def logout(%Config{} = config, name) do
     args = Config.base_args(config) ++ ["mcp", "logout", name]
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 

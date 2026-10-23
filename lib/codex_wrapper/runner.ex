@@ -22,7 +22,7 @@ defmodule CodexWrapper.Runner do
   runner:
 
       # mix.exs
-      {:forcola, "~> 0.6.0"}
+      {:forcola, "~> 0.7.0"}
 
       # config/config.exs
       config :codex_wrapper, runner: CodexWrapper.Runner.Forcola
@@ -52,6 +52,9 @@ defmodule CodexWrapper.Runner do
   @typedoc "Runner error reasons. `:timeout` is common to every runner."
   @type error ::
           :timeout
+          | :idle_timeout
+          | :max_output_bytes
+          | :observer_overflow
           | {:signal, term()}
           | {:spawn, term()}
           | {:io, term()}
@@ -118,7 +121,38 @@ defmodule CodexWrapper.Runner do
   @callback run_observed(String.t(), [String.t()], opts(), timeout() | nil, {pid(), reference()}) ::
               {:ok, {binary(), non_neg_integer(), binary()}} | {:error, error()}
 
-  @optional_callbacks effective_timeout: 1, stream_lines: 4, run_observed: 5
+  @doc """
+  Optional evidenced one-shot transport. Uses the same raw chunk observer as
+  `run_observed/5`. Returns `{legacy_outcome, evidence_map}`; missing facts
+  remain unknown. Evidence keys are documented in `CodexWrapper.ExecutionObservation`.
+  The evidence map carries `:stdout` / `:stderr` bounded prefixes plus native
+  `:child_status`, `:child_signal`, `:termination`, `:reason`,
+  `:output_truncated`, `:cleanup`, `:scope`, and `:guard_close` when known.
+  No raw child exit may be synthesized for a pre-spawn failure. Notifications
+  must come from the calling process before return, preserving message order.
+  `timeout` is a finite positive wall bound computed from the config. Forcola
+  uses the snapshotted `:forcola_default_timeout_ms` (300,000 ms unless configured)
+  when no explicit limit is set; other runners default to 300,000 ms. Idle and
+  combined output defaults are 300,000 ms and 1 MiB. `:idle_timeout_ms` and
+  `:max_output_bytes` are included in opts.
+  Implementations must bound output and execution, preserve partial output on
+  failure, and finish native cleanup before returning. No fallback is allowed.
+  """
+  @callback run_evidenced(String.t(), [String.t()], opts(), pos_integer(), {pid(), reference()}) ::
+              {term(), map()}
+
+  @doc "Validate supported per-config requirements before any subprocess is opened."
+  @callback validate_options(keyword()) :: :ok | {:error, term()}
+
+  @doc "Optional capability preflight, checked before invoking run_evidenced/5."
+  @callback validate_evidence() :: :ok | {:error, term()}
+
+  @optional_callbacks validate_evidence: 0,
+                      effective_timeout: 1,
+                      stream_lines: 4,
+                      run_observed: 5,
+                      run_evidenced: 5,
+                      validate_options: 1
 
   @doc """
   The configured runner module, `CodexWrapper.Runner.Port` by default.
@@ -141,9 +175,9 @@ defmodule CodexWrapper.Runner do
     |> resolve()
   end
 
-  defp resolve(:task), do: CodexWrapper.Runner.Port
+  def resolve(:task), do: CodexWrapper.Runner.Port
 
-  defp resolve(:forcola) do
+  def resolve(:forcola) do
     if Code.ensure_loaded?(CodexWrapper.Runner.Forcola) do
       CodexWrapper.Runner.Forcola
     else
@@ -151,7 +185,55 @@ defmodule CodexWrapper.Runner do
     end
   end
 
-  defp resolve(module) when is_atom(module), do: module
+  def resolve(module) when is_atom(module) and not is_nil(module), do: module
+  def resolve(value), do: raise(ArgumentError, "invalid runner: #{inspect(value)}")
+
+  @doc "Resolve the runner selected by a config."
+  @spec impl(CodexWrapper.Config.t()) :: module()
+  def impl(%{runner: nil}), do: impl()
+  def impl(%{runner: runner}), do: resolve(runner)
+
+  @doc false
+  def validate_options(runner, options) do
+    Code.ensure_loaded(runner)
+
+    cond do
+      options == [] -> :ok
+      function_exported?(runner, :validate_options, 1) -> runner.validate_options(options)
+      true -> {:error, {:runner_options_unsupported, runner}}
+    end
+  end
+
+  @doc false
+  def run(config, args) do
+    runner = impl(config)
+
+    with :ok <- validate_options(runner, CodexWrapper.Config.runner_options(config)) do
+      case runner.run(
+             config.binary,
+             args,
+             CodexWrapper.Config.execution_opts(config),
+             timeout(config)
+           ) do
+        {:error, :timeout} ->
+          bound = effective_timeout(runner, timeout(config))
+          {:error, {:timeout, bound}}
+
+        outcome ->
+          outcome
+      end
+    end
+  end
+
+  @doc false
+  def timeout(config) do
+    if impl(config) == CodexWrapper.Runner.Forcola do
+      config.timeout || CodexWrapper.Config.runner_options(config)[:timeout_ms] ||
+        config.runner_default_timeout_ms || effective_timeout(impl(config), nil)
+    else
+      config.timeout
+    end
+  end
 
   @doc """
   `effective_timeout/1` on `runner`, falling back to `timeout` unchanged
@@ -177,8 +259,28 @@ defmodule CodexWrapper.Runner do
   """
   @spec stream_lines(String.t(), [String.t()], opts(), timeout() | nil) :: Enumerable.t()
   def stream_lines(binary, args, opts, timeout) do
-    runner = impl()
+    stream_lines(impl(), binary, args, opts, timeout)
+  end
 
+  @doc false
+  def stream_lines(%CodexWrapper.Config{} = config, binary, args, opts, timeout) do
+    runner = impl(config)
+
+    if config.runner_explicit != false and not is_nil(config.runner) do
+      unless Code.ensure_loaded?(runner) and function_exported?(runner, :stream_lines, 4),
+        do:
+          raise(
+            ArgumentError,
+            "explicit runner #{inspect(runner)} does not implement stream_lines/4"
+          )
+
+      runner.stream_lines(binary, args, opts, timeout)
+    else
+      stream_lines(runner, binary, args, opts, timeout)
+    end
+  end
+
+  def stream_lines(runner, binary, args, opts, timeout) do
     runner =
       case Code.ensure_loaded(runner) do
         {:module, ^runner} ->

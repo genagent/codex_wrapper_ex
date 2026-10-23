@@ -14,9 +14,10 @@ defmodule CodexWrapper.Commands.Features do
   def list(%Config{} = config) do
     args = Config.base_args(config) ++ ["features", "list"]
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -27,9 +28,10 @@ defmodule CodexWrapper.Commands.Features do
   def enable(%Config{} = config, feature) do
     args = Config.base_args(config) ++ ["features", "enable", feature]
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -40,9 +42,10 @@ defmodule CodexWrapper.Commands.Features do
   def disable(%Config{} = config, feature) do
     args = Config.base_args(config) ++ ["features", "disable", feature]
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 end
