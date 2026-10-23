@@ -464,8 +464,10 @@ defmodule CodexWrapper.ExecTest do
     end
 
     test "color/2 rejects an unknown mode" do
+      color = Function.capture(Exec, :color, 2)
+
       assert_raise FunctionClauseError, fn ->
-        Exec.new("p") |> Exec.color(:sometimes)
+        color.(Exec.new("p"), :sometimes)
       end
     end
 

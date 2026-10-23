@@ -223,7 +223,7 @@ defmodule CodexWrapper.ExecResume do
   end
 
   @doc """
-  Execute with optional early session observation. See
+  Execute with optional early session and terminal execution observation. See
   `CodexWrapper.ObservedExecution` for options, ordering and raw-output semantics.
   An empty options list delegates to legacy `execute/2`.
   """
@@ -280,8 +280,8 @@ defmodule CodexWrapper.ExecResume do
       fn ->
         args = Config.base_args(config) ++ args(exec)
 
-        config.binary
-        |> Runner.stream_lines(args, Config.stream_opts(config), config.timeout)
+        Runner.impl(config)
+        |> Runner.stream_lines(config.binary, args, Config.stream_opts(config), config.timeout)
         |> JsonLineEvent.parse_stream()
       end
     )

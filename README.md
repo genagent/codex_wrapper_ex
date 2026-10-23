@@ -628,6 +628,8 @@ Exception metadata adds the standard `:kind`, `:reason`, and
 | `:env` | `[{String.t(), String.t()}]` | Environment variables |
 | `:timeout` | `pos_integer()` | Whole-command timeout in milliseconds; defaults to no whole-run bound for Port streams |
 | `:idle_timeout_ms` | `pos_integer() \| nil` | Maximum gap between output frames in a stream; defaults to 300,000 ms, or set `nil` to disable |
+| `:runner` | module or shorthand | Per-config runner; snapshots application default when absent |
+| `:runner_options` | keyword | Immutable one-shot transport requirements; explicit `[]` overrides application defaults |
 | `:verbose` | `boolean()` | Compatibility option: only `false` is supported; `true` raises before CLI execution |
 
 ### Observing native thread identity before completion
@@ -651,7 +653,7 @@ observed identity is not proof of completion; the call can still fail or time ou
 
 The same option works with `Exec.execute/3`, `ExecResume.execute/3`,
 `ExecFork.execute/3`, `ExecFork.fork/3`, their `execute_json/3` variants and
-`CodexWrapper.exec_json/2`. It requires `Runner.Forcola` and Forcola 0.6.0 or
+`CodexWrapper.exec_json/2`. It requires `Runner.Forcola` and Forcola 0.7 or
 later in the supported dependency range. Invalid observer options and runners
 without observed execution fail before spawning. A dead observer is harmless;
 no caller callback runs and no silent Port fallback occurs.
@@ -670,6 +672,90 @@ deadline, including Forcola's configured default for a nil timeout, stays in
 force. Completion waits for transport termination even after `turn.completed`.
 The execution caller owns and cleans up its helper; owner death closes the
 Forcola port and triggers process-group cleanup.
+
+### Evidenced one-shot execution and isolated configuration
+
+`CodexWrapper.Config.new/1` snapshots the application runner and runner options only when
+those fields are absent. Explicit `runner_options: []` overrides defaults;
+concurrent calls can select different binaries, directories, environment,
+models, CLI config/MCP overrides and transport requirements without changing
+application or OS state. All one-shot commands, including `raw`, version,
+completion and command convenience functions, honor the config's runner.
+Directly constructed structs with nil runner fields retain legacy default lookup.
+Forcola's legacy one-shot default timeout is captured by `CodexWrapper.Config.new/1` too.
+
+Add `execution_observer` to `Exec.execute/3`, `ExecResume.execute/3`,
+`ExecFork.execute/3`, `ExecFork.fork/3`, `Review.execute/3`, JSON variants,
+or the exec/review convenience functions. Supply a `session_observer` too
+when early native identity is needed:
+
+```elixir
+ref = make_ref()
+config = CodexWrapper.Config.new(
+  binary: "/opt/codex", working_dir: "/work/project",
+  env: [{"CODEX_HOME", "/work/config-a"}, {"OPENAI_API_KEY", "caller-supplied"}],
+  runner: CodexWrapper.Runner.Forcola,
+  timeout: 60_000,
+  runner_options: [shim_path: "/opt/forcola_shim", env_mode: :replace,
+    idle_timeout_ms: 10_000, max_output_bytes: 1_048_576,
+    interrupt_signal: :int, interrupt_grace_ms: 1_000, kill_grace_ms: 500])
+CodexWrapper.Exec.execute(CodexWrapper.Exec.new("inspect the project"), config,
+  session_observer: {self(), ref}, execution_observer: {self(), ref})
+# {ref, %CodexWrapper.SessionObservation{...}}       (if announced)
+# {ref, %CodexWrapper.ExecutionObservation{...}}     (exactly once before return)
+```
+
+The evidenced adapter requires Forcola `~> 0.7.0`, whose reviewed PR #97
+supplies the `run/2` contract and matching shim. The dependency floor has been
+updated and the lockfile resolves the published 0.7.0 release.
+Forcola 0.6 cannot satisfy this contract and is rejected before evidenced
+execution. The example requires the matching trusted shim; fake tests do not
+establish native behavior.
+
+A terminal observation preserves bounded stdout/stderr prefixes (including on
+failure), the last parsed `turn.completed` / `turn.failed` object, the legacy
+outcome, raw child exit/signal, protocol/transport termination, cancellation
+reason, truncation, cleanup confirmation/scope, and guard close independently.
+Missing facts stay unknown. A session ID, JSON result, exit zero, or exhausted
+enumerable does not establish clean completion. Process-group confirmation
+says nothing about escaped descendants (Forcola #93 / Codex #119).
+
+Without an explicit limit, evidenced execution uses finite 300,000 ms wall and
+idle limits and 1 MiB combined stdout/stderr. `:timeout_ms` supplies a per-config
+runner default; `:timeout` takes precedence. Idle/output limits and interrupt
+grace must be positive 32-bit integers; kill grace may be zero. Interrupt
+signal/grace must be supplied together and only `:int` is accepted. Replacement
+environment clears inherited variables even with `env: []`; use an absolute
+binary and supply every variable the target requires. Explicit shim paths must
+be absolute; installation, matching version and lifetime belong to the caller.
+
+Custom runners opt in with `run_evidenced/5` and may provide
+`validate_evidence/0` for capability preflight. `validate_options/1` is required
+for nonempty runner options. Unsupported requirements are errors before spawn,
+with no Port fallback. A valid execution observer receives a terminal fact
+on preflight failure too, without a fabricated child exit. Invalid execution
+targets cannot receive a fact. The owned bounded collector forwards identity
+from the caller, contains private raw messages, monitors caller/worker death,
+and closes before the terminal fact. Forcola remains the native process owner;
+there is no competing cancellation loop. Existing session-only observation
+and legacy return shapes remain available.
+
+The new controls are one-shot only; streams reject nonempty `runner_options`
+and `execution_observer` before spawning. Their existing APIs and default
+runner behavior remain unchanged.
+
+The default `mix test` command includes the required contract suite and resolves
+the matching shim from the installed Forcola dependency. To run it alone:
+
+```sh
+mix test test/codex_wrapper/runner/forcola_evidence_contract_test.exs
+```
+
+An optional `FORCOLA_SHIM_PATH=/absolute/path/to/matching/forcola_shim` test
+override selects a trusted executable built for the same Forcola version.
+This suite reports a missing contract or shim as a failure and is not excluded
+by the legacy `:forcola` availability tag. Fixtures run without Codex credentials
+and clean their temporary files; native process cleanup is asserted separately.
 
 ### Runners: process-group cleanup with forcola
 
@@ -709,7 +795,7 @@ required.
 
 ```elixir
 # mix.exs
-{:forcola, "~> 0.6.0"}
+{:forcola, "~> 0.7.0"}
 ```
 
 ```elixir

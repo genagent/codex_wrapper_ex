@@ -32,9 +32,10 @@ defmodule CodexWrapper.Commands.McpServer do
   def start(%Config{} = config, opts \\ []) do
     args = Config.base_args(config) ++ ["mcp-server"] ++ build_args(opts)
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 

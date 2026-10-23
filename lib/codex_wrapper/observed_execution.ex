@@ -3,10 +3,20 @@ defmodule CodexWrapper.ObservedExecution do
   Shared opt-in execution for fresh, resumed and forked commands.
 
   Pass `session_observer: {local_pid, reference}` to `Exec.execute/3`,
-  `ExecResume.execute/3`, `ExecFork.execute/3` or `ExecFork.fork/3`.
+  `ExecResume.execute/3`, `ExecFork.execute/3`, `ExecFork.fork/3` or `Review.execute/3`.
   Existing `CodexWrapper.exec/2` and `exec_json/2` accept the same option.
   Observed commands force `--json` and require a runner implementing
   `c:CodexWrapper.Runner.run_observed/5`; no Port fallback occurs.
+
+  Add `execution_observer: {local_pid, reference}` to request a terminal
+  `CodexWrapper.ExecutionObservation` on success or failure. This requires
+  `c:CodexWrapper.Runner.run_evidenced/5` and never falls back. Supply both
+  observer options for early identity followed by terminal evidence. The caller
+  sends both facts before returning. The evidence path uses finite wall/idle
+  bounds (300,000 ms by default) and combined output (1 MiB by default),
+  configurable with `Config.runner_options`. A valid execution target also
+  receives a terminal fact for capability/option preflight failures; an invalid
+  execution target cannot be notified. Missing cleanup remains unknown.
 
   Only the first valid stdout `thread.started` with a nonblank `thread_id`
   produces a `CodexWrapper.SessionObservation`. Malformed, duplicate and
@@ -32,8 +42,17 @@ defmodule CodexWrapper.ObservedExecution do
   @doc false
   @spec run(module(), struct(), Config.t(), keyword()) :: {:ok, Result.t()} | {:error, term()}
   def run(mod, command, config, opts) do
+    if Keyword.has_key?(opts, :execution_observer) do
+      CodexWrapper.EvidencedExecution.run(mod, command, config, opts)
+    else
+      run_observed(mod, command, config, opts)
+    end
+  end
+
+  defp run_observed(mod, command, config, opts) do
     with {:ok, observer} <- observer(opts),
-         {:ok, runner} <- observed_runner() do
+         {:ok, runner} <- observed_runner(config),
+         :ok <- Runner.validate_options(runner, Config.runner_options(config)) do
       args = Config.base_args(config) ++ mod.args(%{command | json: true})
       collect(runner, config, args, observer)
     end
@@ -45,8 +64,8 @@ defmodule CodexWrapper.ObservedExecution do
 
   defp observer(_opts), do: {:error, :invalid_session_observer}
 
-  defp observed_runner do
-    runner = Runner.impl()
+  defp observed_runner(config) do
+    runner = Runner.impl(config)
 
     if Code.ensure_loaded?(runner) and function_exported?(runner, :run_observed, 5) do
       {:ok, runner}
@@ -62,7 +81,7 @@ defmodule CodexWrapper.ObservedExecution do
     state = %{observer: observer, buffer: "", dropping?: false}
 
     try do
-      await(task, reference, state, runner, config.timeout)
+      await(task, reference, state, runner, Runner.timeout(config))
     after
       Task.shutdown(task, :brutal_kill)
       flush(reference)
@@ -75,7 +94,13 @@ defmodule CodexWrapper.ObservedExecution do
   # incidentally before the caller has drained prior observation messages.
   defp invoke(runner, config, args, target) do
     {:returned,
-     runner.run_observed(config.binary, args, Config.cmd_opts(config), config.timeout, target)}
+     runner.run_observed(
+       config.binary,
+       args,
+       Config.execution_opts(config),
+       Runner.timeout(config),
+       target
+     )}
   catch
     kind, reason -> {:raised, kind, reason, __STACKTRACE__}
   end

@@ -274,7 +274,7 @@ defmodule CodexWrapper.ExecFork do
   def supported?(%Config{} = config) do
     args = Config.base_args(config) ++ ["exec", "fork", "--help"]
 
-    case Runner.impl().run(config.binary, args, Config.cmd_opts(config), config.timeout) do
+    case Runner.run(config, args) do
       {:ok, {out, 0}} -> String.contains?(out, "exec fork")
       _ -> false
     end
@@ -306,7 +306,7 @@ defmodule CodexWrapper.ExecFork do
   end
 
   @doc """
-  Execute with optional early session observation. See
+  Execute with optional early session and terminal execution observation. See
   `CodexWrapper.ObservedExecution` for options, ordering and raw-output semantics.
   An empty options list delegates to legacy `execute/2`.
   """
@@ -314,12 +314,16 @@ defmodule CodexWrapper.ExecFork do
   def execute(%__MODULE__{} = exec, %Config{} = config, []), do: execute(exec, config)
 
   def execute(%__MODULE__{} = exec, %Config{} = config, opts) do
-    with :ok <- validate(exec) do
-      Telemetry.span([:codex_wrapper, :exec], Telemetry.exec_metadata(:exec_fork, exec), fn ->
-        __MODULE__
-        |> CodexWrapper.ObservedExecution.run(exec, config, opts)
-        |> check_supported(exec)
-      end)
+    case validate(exec) do
+      :ok ->
+        Telemetry.span([:codex_wrapper, :exec], Telemetry.exec_metadata(:exec_fork, exec), fn ->
+          __MODULE__
+          |> CodexWrapper.ObservedExecution.run(exec, config, opts)
+          |> check_supported(exec)
+        end)
+
+      {:error, _} = error ->
+        CodexWrapper.EvidencedExecution.reject(opts, error)
     end
   end
 
@@ -445,8 +449,8 @@ defmodule CodexWrapper.ExecFork do
       fn ->
         args = Config.base_args(config) ++ args(exec)
 
-        config.binary
-        |> Runner.stream_lines(args, Config.stream_opts(config), config.timeout)
+        Runner.impl(config)
+        |> Runner.stream_lines(config.binary, args, Config.stream_opts(config), config.timeout)
         |> raise_if_unsupported(config)
         |> JsonLineEvent.parse_stream()
       end

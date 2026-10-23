@@ -6,7 +6,8 @@ defmodule CodexWrapper.ConfigTest do
   describe "new/1" do
     test "defaults" do
       config = Config.new()
-      assert config.binary != nil
+      assert config.binary == Config.find_binary()
+      assert is_binary(config.binary)
       assert config.working_dir == nil
       assert config.env == []
       assert config.timeout == nil

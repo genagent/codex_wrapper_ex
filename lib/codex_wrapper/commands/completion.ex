@@ -24,9 +24,10 @@ defmodule CodexWrapper.Commands.Completion do
   def generate(%Config{} = config, shell \\ :bash) when shell in @shells do
     args = Config.base_args(config) ++ ["completion", Atom.to_string(shell)]
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 end

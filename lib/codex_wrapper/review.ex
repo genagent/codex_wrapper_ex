@@ -227,6 +227,16 @@ defmodule CodexWrapper.Review do
     end)
   end
 
+  @doc "Execute with the one-shot observation options documented in `CodexWrapper.ObservedExecution`."
+  @spec execute(t(), Config.t(), keyword()) :: {:ok, Result.t()} | {:error, term()}
+  def execute(review, config, []), do: execute(review, config)
+
+  def execute(%__MODULE__{} = review, %Config{} = config, opts) do
+    Telemetry.span([:codex_wrapper, :review], Telemetry.review_metadata(:review, review), fn ->
+      CodexWrapper.ObservedExecution.run(__MODULE__, review, config, opts)
+    end)
+  end
+
   @doc """
   Execute the review command with `--json` and return parsed NDJSON events.
 
@@ -240,6 +250,15 @@ defmodule CodexWrapper.Review do
     case execute(review, config) do
       {:ok, result} -> {:ok, JsonLineEvent.parse_lines(result.stdout)}
       {:error, _} = err -> err
+    end
+  end
+
+  @doc "Execute JSON with optional one-shot observation."
+  @spec execute_json(t(), Config.t(), keyword()) :: {:ok, [JsonLineEvent.t()]} | {:error, term()}
+  def execute_json(%__MODULE__{} = review, %Config{} = config, opts) do
+    case execute(%{review | json: true}, config, opts) do
+      {:ok, result} -> {:ok, JsonLineEvent.parse_lines(result.stdout)}
+      {:error, _} = error -> error
     end
   end
 
@@ -259,8 +278,8 @@ defmodule CodexWrapper.Review do
       fn ->
         args = Config.base_args(config) ++ args(review)
 
-        config.binary
-        |> Runner.stream_lines(args, Config.stream_opts(config), config.timeout)
+        Runner.impl(config)
+        |> Runner.stream_lines(config.binary, args, Config.stream_opts(config), config.timeout)
         |> JsonLineEvent.parse_stream()
       end
     )

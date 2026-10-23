@@ -17,7 +17,10 @@ defmodule CodexWrapper.Config do
           env: [{String.t(), String.t()}],
           timeout: pos_integer() | nil,
           idle_timeout_ms: pos_integer() | nil,
-          verbose: boolean()
+          verbose: boolean(),
+          runner: module() | atom() | nil,
+          runner_options: keyword() | nil,
+          runner_default_timeout_ms: pos_integer() | nil
         }
 
   defstruct [
@@ -25,6 +28,9 @@ defmodule CodexWrapper.Config do
     :working_dir,
     :timeout,
     :idle_timeout_ms,
+    :runner,
+    :runner_options,
+    :runner_default_timeout_ms,
     env: [],
     verbose: false
   ]
@@ -38,9 +44,14 @@ defmodule CodexWrapper.Config do
       Shell commands and unexpanded `~` or environment-variable paths are not supported.
     * `:working_dir` - Working directory for the subprocess
     * `:env` - List of `{key, value}` environment variable tuples
-    * `:timeout` - Whole-command timeout in milliseconds for streaming runs
+    * `:timeout` - Whole-command timeout in milliseconds
     * `:idle_timeout_ms` - Maximum gap between output frames while streaming
+      or using evidenced one-shot execution
       (default: 300,000 ms)
+    * `:runner` - Runner module or `:task` / `:forcola` shorthand. Application
+      defaults are snapshotted at construction, only when this field is absent.
+    * `:runner_options` - Validated one-shot transport options. An explicit `[]`
+      overrides application defaults. See `runner_options/1` for supported keys.
     * `:verbose` - Compatibility option. Only `false` is supported; `true` raises
       `ArgumentError` before the CLI is launched, because the Codex CLI does not
       define a `--verbose` flag
@@ -50,15 +61,84 @@ defmodule CodexWrapper.Config do
     verbose = Keyword.get(opts, :verbose, false)
     validate_verbose!(verbose)
 
+    runner =
+      opts
+      |> Keyword.get_lazy(:runner, &CodexWrapper.Runner.impl/0)
+      |> CodexWrapper.Runner.resolve()
+
     %__MODULE__{
       binary: opts[:binary] || find_binary(),
       working_dir: opts[:working_dir],
       env: opts[:env] || [],
       timeout: opts[:timeout],
       idle_timeout_ms: Keyword.get(opts, :idle_timeout_ms, 300_000),
-      verbose: verbose
+      verbose: verbose,
+      runner: runner,
+      runner_default_timeout_ms:
+        Application.get_env(:codex_wrapper, :forcola_default_timeout_ms, 300_000),
+      runner_options:
+        validate_runner_options!(
+          Keyword.get_lazy(opts, :runner_options, fn ->
+            Application.get_env(:codex_wrapper, :runner_options, [])
+          end)
+        )
     }
   end
+
+  @doc """
+  Return validated immutable transport options. Direct structs with `nil` fields
+  retain legacy application-default lookup; `new/1` snapshots those defaults.
+
+  Supported keys: `:shim_path` (absolute path), `:env_mode` (`:inherit` or
+  `:replace`), `:timeout_ms`, `:idle_timeout_ms`, `:max_output_bytes`,
+  `:kill_grace_ms`, and the paired `:interrupt_signal` (`:int`) and
+  `:interrupt_grace_ms`. Limits are positive 32-bit integers; kill grace may
+  be zero. These requirements need a runner implementing `validate_options/1`.
+  `:timeout_ms` supplies the runner default; config `:timeout` takes precedence.
+  New requirements are refused by unsupported runners before spawning. These
+  options apply to one-shot execution; streams reject nonempty options before
+  spawning rather than silently losing requirements.
+  """
+  @spec runner_options(t()) :: keyword()
+  def runner_options(%__MODULE__{runner_options: nil}),
+    do: validate_runner_options!(Application.get_env(:codex_wrapper, :runner_options, []))
+
+  def runner_options(%__MODULE__{runner_options: opts}), do: validate_runner_options!(opts)
+
+  @doc false
+  def validate_runner_options!(opts) do
+    unless Keyword.keyword?(opts) and
+             length(Keyword.keys(opts)) == length(Enum.uniq(Keyword.keys(opts))) do
+      raise ArgumentError, "runner_options must be a keyword list without duplicate keys"
+    end
+
+    Enum.each(opts, fn {key, value} ->
+      unless valid_runner_option?(key, value),
+        do: raise(ArgumentError, "invalid runner option #{inspect(key)}")
+    end)
+
+    if Keyword.has_key?(opts, :interrupt_signal) != Keyword.has_key?(opts, :interrupt_grace_ms),
+      do:
+        raise(ArgumentError, "interrupt_signal and interrupt_grace_ms must be supplied together")
+
+    opts
+  end
+
+  defp valid_runner_option?(:shim_path, value) do
+    is_binary(value) and Path.type(value) == :absolute and not String.contains?(value, <<0>>)
+  end
+
+  defp valid_runner_option?(:env_mode, value), do: value in [:inherit, :replace]
+  defp valid_runner_option?(:interrupt_signal, value), do: value == :int
+
+  defp valid_runner_option?(:kill_grace_ms, value),
+    do: is_integer(value) and value >= 0 and value <= 4_294_967_295
+
+  defp valid_runner_option?(key, value)
+       when key in [:timeout_ms, :idle_timeout_ms, :max_output_bytes, :interrupt_grace_ms],
+       do: is_integer(value) and value > 0 and value <= 4_294_967_295
+
+  defp valid_runner_option?(_, _), do: false
 
   @doc """
   Find the codex binary path.
@@ -105,6 +185,10 @@ defmodule CodexWrapper.Config do
     opts
   end
 
+  @doc false
+  @spec execution_opts(t()) :: keyword()
+  def execution_opts(config), do: Keyword.merge(cmd_opts(config), runner_options(config))
+
   @doc """
   Build the runner options for a streaming run.
 
@@ -115,6 +199,9 @@ defmodule CodexWrapper.Config do
   """
   @spec stream_opts(t()) :: keyword()
   def stream_opts(%__MODULE__{} = config) do
+    if runner_options(config) != [],
+      do: raise(ArgumentError, "runner_options are supported only by one-shot execution")
+
     config
     |> cmd_opts()
     |> Keyword.put(:stderr_to_stdout, false)

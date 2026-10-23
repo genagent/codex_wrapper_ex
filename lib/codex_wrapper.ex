@@ -78,14 +78,10 @@ defmodule CodexWrapper do
   def raw(args, opts \\ []) when is_list(args) do
     config = Config.new(opts)
     all_args = Config.base_args(config) ++ args
-    cmd_opts = Config.cmd_opts(config)
 
-    runner = Runner.impl()
-
-    case runner.run(config.binary, all_args, cmd_opts, config.timeout) do
+    case Runner.run(config, all_args) do
       {:ok, {output, 0}} -> {:ok, String.trim(output)}
       {:ok, {output, code}} -> {:error, {:exit, code, output}}
-      {:error, :timeout} -> {:error, {:timeout, Runner.effective_timeout(runner, config.timeout)}}
       {:error, reason} -> {:error, reason}
     end
   rescue
@@ -101,6 +97,8 @@ defmodule CodexWrapper do
   ## Options
 
   Config options (passed to `CodexWrapper.Config.new/1`):
+    * `:runner` / `:runner_options` - Per-config runner and immutable transport
+      controls; see `CodexWrapper.Config`
     * `:binary` - Path to codex binary
     * `:working_dir` - Working directory
     * `:env` - Environment variables
@@ -109,6 +107,8 @@ defmodule CodexWrapper do
     * `:verbose` - Compatibility option: only `false` is supported; `true` raises
 
   Execution options:
+    * `:execution_observer` - `{local_pid, reference}` for one correlated terminal
+      `CodexWrapper.ExecutionObservation`; requires an evidenced runner
     * `:session_observer` - `{local_pid, reference}` for an early native thread
       observation. Requires an observed runner; see `CodexWrapper.ObservedExecution`.
 
@@ -171,7 +171,11 @@ defmodule CodexWrapper do
   """
   @spec stream(String.t(), keyword()) :: Enumerable.t()
   def stream(prompt, opts \\ []) do
-    {config_opts, exec_opts, _execution_opts} = split_opts(opts)
+    {config_opts, exec_opts, execution_opts} = split_opts(opts)
+
+    if Keyword.has_key?(execution_opts, :execution_observer),
+      do: raise(ArgumentError, "execution_observer is supported only by one-shot execution")
+
     config = Config.new(config_opts)
     exec = build_exec(prompt, exec_opts)
     Exec.stream(exec, config)
@@ -186,6 +190,8 @@ defmodule CodexWrapper do
   ## Options
 
   Config options (passed to `CodexWrapper.Config.new/1`):
+    * `:runner` / `:runner_options` - Per-config runner and immutable transport
+      controls; see `CodexWrapper.Config`
     * `:binary` - Path to codex binary
     * `:working_dir` - Working directory
     * `:env` - Environment variables
@@ -215,19 +221,31 @@ defmodule CodexWrapper do
   """
   @spec review(keyword()) :: {:ok, Result.t()} | {:error, term()}
   def review(opts \\ []) do
-    {config_opts, review_opts, _execution_opts} = split_opts(opts)
+    {config_opts, review_opts, execution_opts} = split_opts(opts)
     config = Config.new(config_opts)
     review = build_review(review_opts)
-    Review.execute(review, config)
+    Review.execute(review, config, execution_opts)
   end
 
   # --- Private ---
 
-  @config_keys [:binary, :working_dir, :env, :timeout, :idle_timeout_ms, :verbose]
+  @config_keys [
+    :runner,
+    :runner_options,
+    :binary,
+    :working_dir,
+    :env,
+    :timeout,
+    :idle_timeout_ms,
+    :verbose
+  ]
 
   defp split_opts(opts) do
     {config_opts, remaining} = Enum.split_with(opts, fn {k, _v} -> k in @config_keys end)
-    {execution_opts, command_opts} = Keyword.split(remaining, [:session_observer])
+
+    {execution_opts, command_opts} =
+      Keyword.split(remaining, [:session_observer, :execution_observer])
+
     {config_opts, command_opts, execution_opts}
   end
 

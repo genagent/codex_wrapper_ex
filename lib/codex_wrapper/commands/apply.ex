@@ -20,9 +20,10 @@ defmodule CodexWrapper.Commands.Apply do
   def execute(%Config{} = config, task_id) when is_binary(task_id) do
     args = Config.base_args(config) ++ ["apply", task_id]
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, code} -> {:error, {:exit, code, output}}
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} -> {:ok, String.trim(output)}
+      {:ok, {output, code}} -> {:error, {:exit, code, output}}
+      {:error, reason} -> {:error, reason}
     end
   end
 

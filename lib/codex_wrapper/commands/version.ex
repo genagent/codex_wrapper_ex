@@ -14,13 +14,16 @@ defmodule CodexWrapper.Commands.Version do
   def execute(%Config{} = config) do
     args = Config.base_args(config) ++ ["--version"]
 
-    case System.cmd(config.binary, args, Config.cmd_opts(config)) do
-      {output, 0} ->
+    case CodexWrapper.Runner.run(config, args) do
+      {:ok, {output, 0}} ->
         raw = String.trim(output)
         {:ok, %{version: raw, raw: raw}}
 
-      {output, code} ->
+      {:ok, {output, code}} ->
         {:error, {:exit, code, output}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 end
