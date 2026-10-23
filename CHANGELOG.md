@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.6.3...v0.7.0) (2026-10-23)
+
+
+### Features
+
+* support isolated evidenced execution ([#128](https://github.com/genagent/codex_wrapper_ex/issues/128)) ([7ec53dc](https://github.com/genagent/codex_wrapper_ex/commit/7ec53dc48fed68c3c32d56493d43e7f849ff2e48))
+
 ## [0.6.3](https://github.com/genagent/codex_wrapper_ex/compare/v0.6.2...v0.6.3) (2026-10-13)
 
 
