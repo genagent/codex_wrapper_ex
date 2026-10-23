@@ -449,7 +449,7 @@ defmodule CodexWrapper.ExecFork do
       fn ->
         args = Config.base_args(config) ++ args(exec)
 
-        Runner.impl(config)
+        config
         |> Runner.stream_lines(config.binary, args, Config.stream_opts(config), config.timeout)
         |> raise_if_unsupported(config)
         |> JsonLineEvent.parse_stream()

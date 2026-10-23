@@ -684,6 +684,19 @@ completion and command convenience functions, honor the config's runner.
 Directly constructed structs with nil runner fields retain legacy default lookup.
 Forcola's legacy one-shot default timeout is captured by `CodexWrapper.Config.new/1` too.
 
+The formerly `System.cmd` commands (auth login/logout/status, apply, completion,
+features, MCP, mcp-server and version) now use this runner routing and its timeout
+semantics. With the default Port runner they run through `/bin/sh`, with stdin
+from `/dev/null` and the SIGINT/TERM/KILL watchdog; a missing binary returns
+`{:error, {:exit, 127, output}}` instead of raising. Port has no whole-run bound
+unless config `:timeout` is set. Forcola uses the snapshotted
+`:forcola_default_timeout_ms` (300,000 ms unless configured) when no explicit
+limit is set, then cancels the child and returns `{:error, {:timeout, milliseconds}}`.
+Interactive login, device authorization and long-running mcp-server commands
+therefore need an explicit config `:timeout` sufficient for the intended wait or
+server lifetime under Forcola. This routing does not supply interactive stdin
+or a duplex MCP connection.
+
 Add `execution_observer` to `Exec.execute/3`, `ExecResume.execute/3`,
 `ExecFork.execute/3`, `ExecFork.fork/3`, `Review.execute/3`, JSON variants,
 or the exec/review convenience functions. Supply a `session_observer` too
@@ -720,8 +733,10 @@ Missing facts stay unknown. A session ID, JSON result, exit zero, or exhausted
 enumerable does not establish clean completion. Process-group confirmation
 says nothing about escaped descendants (Forcola #93 / Codex #119).
 
-Without an explicit limit, evidenced execution uses finite 300,000 ms wall and
-idle limits and 1 MiB combined stdout/stderr. `:timeout_ms` supplies a per-config
+Without an explicit limit, evidenced execution uses a finite wall bound: Forcola
+uses the snapshotted `:forcola_default_timeout_ms` (300,000 ms unless configured);
+other runners use 300,000 ms. Idle defaults to 300,000 ms, with 1 MiB combined
+stdout/stderr. `:timeout_ms` supplies a per-config
 runner default; `:timeout` takes precedence. Idle/output limits and interrupt
 grace must be positive 32-bit integers; kill grace may be zero. Interrupt
 signal/grace must be supplied together and only `:int` is accepted. Replacement
@@ -741,8 +756,11 @@ there is no competing cancellation loop. Existing session-only observation
 and legacy return shapes remain available.
 
 The new controls are one-shot only; streams reject nonempty `runner_options`
-and `execution_observer` before spawning. Their existing APIs and default
-runner behavior remain unchanged.
+and `execution_observer` before spawning. An explicitly selected per-config runner
+(including a non-nil runner in a direct struct) must implement `stream_lines/4`;
+otherwise stream consumption raises `ArgumentError` before spawning, with no Port
+fallback. Implicit application/default runner selection retains the legacy Port
+fallback with a warning when the streaming callback is unavailable.
 
 The default `mix test` command includes the required contract suite and resolves
 the matching shim from the installed Forcola dependency. To run it alone:

@@ -150,6 +150,19 @@ defmodule CodexWrapper.EvidencedExecutionTest do
     def validate_evidence, do: {:error, :contract_unavailable}
   end
 
+  test "nil config timeout reaches evidenced runner as a finite computed wall" do
+    for {options, expected} <- [{[], 300_000}, {[timeout_ms: 700], 700}] do
+      config = %{config("ok", options) | timeout: nil}
+      ref = make_ref()
+
+      assert {:ok, %Result{}} =
+               Exec.execute(Exec.new("p"), config, execution_observer: {self(), ref})
+
+      assert_receive {:invoked, _, _, _, "ok", _, _, ^expected}
+      assert_receive {^ref, %ExecutionObservation{}}
+    end
+  end
+
   test "fragmented native identity precedes exactly one terminal fact and final reply" do
     caller = self()
     ref = make_ref()

@@ -19,6 +19,7 @@ defmodule CodexWrapper.Config do
           idle_timeout_ms: pos_integer() | nil,
           verbose: boolean(),
           runner: module() | atom() | nil,
+          runner_explicit: boolean() | nil,
           runner_options: keyword() | nil,
           runner_default_timeout_ms: pos_integer() | nil
         }
@@ -29,6 +30,7 @@ defmodule CodexWrapper.Config do
     :timeout,
     :idle_timeout_ms,
     :runner,
+    :runner_explicit,
     :runner_options,
     :runner_default_timeout_ms,
     env: [],
@@ -50,6 +52,11 @@ defmodule CodexWrapper.Config do
       (default: 300,000 ms)
     * `:runner` - Runner module or `:task` / `:forcola` shorthand. Application
       defaults are snapshotted at construction, only when this field is absent.
+      An explicitly selected runner must implement `stream_lines/4` for streaming;
+      otherwise consumption raises `ArgumentError` before spawning. Implicit
+      application/default selection retains the legacy Port fallback with a warning.
+      Direct structs with a non-nil runner are treated as explicit selections.
+      `:runner_explicit` is internal selection provenance set by `new/1`.
     * `:runner_options` - Validated one-shot transport options. An explicit `[]`
       overrides application defaults. See `runner_options/1` for supported keys.
     * `:verbose` - Compatibility option. Only `false` is supported; `true` raises
@@ -74,6 +81,7 @@ defmodule CodexWrapper.Config do
       idle_timeout_ms: Keyword.get(opts, :idle_timeout_ms, 300_000),
       verbose: verbose,
       runner: runner,
+      runner_explicit: Keyword.has_key?(opts, :runner),
       runner_default_timeout_ms:
         Application.get_env(:codex_wrapper, :forcola_default_timeout_ms, 300_000),
       runner_options:

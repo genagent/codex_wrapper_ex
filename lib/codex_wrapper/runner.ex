@@ -130,12 +130,15 @@ defmodule CodexWrapper.Runner do
   `:output_truncated`, `:cleanup`, `:scope`, and `:guard_close` when known.
   No raw child exit may be synthesized for a pre-spawn failure. Notifications
   must come from the calling process before return, preserving message order.
-  `timeout` is finite; defaults are 300,000 ms wall/idle and 1 MiB combined
-  output. `:idle_timeout_ms` and `:max_output_bytes` are included in opts.
+  `timeout` is a finite positive wall bound computed from the config. Forcola
+  uses the snapshotted `:forcola_default_timeout_ms` (300,000 ms unless configured)
+  when no explicit limit is set; other runners default to 300,000 ms. Idle and
+  combined output defaults are 300,000 ms and 1 MiB. `:idle_timeout_ms` and
+  `:max_output_bytes` are included in opts.
   Implementations must bound output and execution, preserve partial output on
   failure, and finish native cleanup before returning. No fallback is allowed.
   """
-  @callback run_evidenced(String.t(), [String.t()], opts(), timeout() | nil, {pid(), reference()}) ::
+  @callback run_evidenced(String.t(), [String.t()], opts(), pos_integer(), {pid(), reference()}) ::
               {term(), map()}
 
   @doc "Validate supported per-config requirements before any subprocess is opened."
@@ -260,6 +263,23 @@ defmodule CodexWrapper.Runner do
   end
 
   @doc false
+  def stream_lines(%CodexWrapper.Config{} = config, binary, args, opts, timeout) do
+    runner = impl(config)
+
+    if config.runner_explicit != false and not is_nil(config.runner) do
+      unless Code.ensure_loaded?(runner) and function_exported?(runner, :stream_lines, 4),
+        do:
+          raise(
+            ArgumentError,
+            "explicit runner #{inspect(runner)} does not implement stream_lines/4"
+          )
+
+      runner.stream_lines(binary, args, opts, timeout)
+    else
+      stream_lines(runner, binary, args, opts, timeout)
+    end
+  end
+
   def stream_lines(runner, binary, args, opts, timeout) do
     runner =
       case Code.ensure_loaded(runner) do

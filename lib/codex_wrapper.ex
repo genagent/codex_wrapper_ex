@@ -163,6 +163,7 @@ defmodule CodexWrapper do
   A streaming timeout emits a final `%CodexWrapper.StreamError{}`.
 
   See `exec/2` for available options, except `:session_observer` (one-shot only).
+  `:execution_observer` is also one-shot only and raises `ArgumentError` here.
 
   ## Examples
 
@@ -198,6 +199,14 @@ defmodule CodexWrapper do
     * `:timeout` - Timeout in ms
     * `:idle_timeout_ms` - Maximum gap between streaming output frames in ms
     * `:verbose` - Compatibility option: only `false` is supported; `true` raises
+
+  Execution options:
+    * `:execution_observer` - `{local_pid, reference}` for one correlated terminal
+      `CodexWrapper.ExecutionObservation`; requires an evidenced runner
+    * `:session_observer` - `{local_pid, reference}` for an early native thread
+      observation. Requires an observed runner; see `CodexWrapper.ObservedExecution`.
+
+  Either observer forces `--json` output.
 
   Review options (passed to `Review` builder):
     * `:prompt` - Additional review context

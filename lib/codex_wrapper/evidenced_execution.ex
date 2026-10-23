@@ -116,7 +116,7 @@ defmodule CodexWrapper.EvidencedExecution do
                      config.binary,
                      args,
                      opts,
-                     Runner.timeout(config),
+                     wall,
                      {collector, ref}
                    )}
                 catch

@@ -278,7 +278,7 @@ defmodule CodexWrapper.Review do
       fn ->
         args = Config.base_args(config) ++ args(review)
 
-        Runner.impl(config)
+        config
         |> Runner.stream_lines(config.binary, args, Config.stream_opts(config), config.timeout)
         |> JsonLineEvent.parse_stream()
       end

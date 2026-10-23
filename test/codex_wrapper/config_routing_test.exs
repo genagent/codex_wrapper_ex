@@ -22,6 +22,22 @@ defmodule CodexWrapper.ConfigRoutingTest do
     end
   end
 
+  # Emulate Forcola's finite default without opening a native process.
+  defmodule ForcolaStyle do
+    @behaviour Runner
+    def effective_timeout(nil), do: 300_000
+    def effective_timeout(timeout), do: timeout
+
+    def run(binary, args, options, timeout),
+      do: Capture.run(binary, args, options, effective_timeout(timeout))
+  end
+
+  defmodule StreamCapture do
+    @behaviour Runner
+    def run(_, _, _, _), do: raise("one-shot callback invoked by stream")
+    def stream_lines(_, _, _, _), do: [~s({"type":"turn.completed","usage":{}})]
+  end
+
   defmodule Poison do
     def run(_, _, _, _), do: raise("application runner leaked into isolated invocation")
   end
@@ -129,6 +145,83 @@ defmodule CodexWrapper.ConfigRoutingTest do
     assert Runner.timeout(config) == 125
     assert Runner.timeout(%{config | timeout: 60}) == 60
     assert Runner.timeout(%{config | runner_options: [timeout_ms: 70]}) == 70
+  end
+
+  test "formerly System.cmd commands preserve Forcola-style default and explicit timeout routing" do
+    for {timeout, expected} <- [{nil, 300_000}, {900_000, 900_000}] do
+      config =
+        Config.new(binary: "fake", runner: ForcolaStyle, runner_options: [], timeout: timeout)
+
+      calls = [
+        fn -> Apply.execute(config, "task") end,
+        fn -> Auth.login(config, device_auth: true) end,
+        fn -> Auth.logout(config) end,
+        fn -> Auth.status(config) end,
+        fn -> Completion.generate(config) end,
+        fn -> Features.list(config) end,
+        fn -> Mcp.list(config) end,
+        fn -> McpServer.start(config) end
+      ]
+
+      for call <- calls do
+        assert {:ok, output} = call.()
+        assert Jason.decode!(output)["timeout"] == expected
+      end
+
+      assert {:ok, %{raw: output}} = Version.execute(config)
+      assert Jason.decode!(output)["timeout"] == expected
+    end
+  end
+
+  test "explicit runners without streaming fail before Port fallback or spawning" do
+    for runner <- [Capture, __MODULE__.MissingRunner] do
+      config = Config.new(binary: "never", runner: runner, runner_options: [])
+
+      # Check the runner boundary without enumerating a possible Port fallback.
+      assert_raise ArgumentError, ~r/explicit runner .* does not implement stream_lines/, fn ->
+        Runner.stream_lines(config, "never", [], [], nil)
+      end
+
+      for command <- [Exec.new("p"), ExecResume.new(), ExecFork.new("source"), Review.new()] do
+        mod = command.__struct__
+
+        assert_raise ArgumentError, ~r/explicit runner .* does not implement stream_lines/, fn ->
+          command |> mod.stream(config) |> Enum.to_list()
+        end
+      end
+    end
+
+    direct = %Config{binary: "never", runner: Capture, runner_options: []}
+
+    assert_raise ArgumentError, ~r/explicit runner/, fn ->
+      Runner.stream_lines(direct, "never", [], [], nil)
+    end
+  end
+
+  test "implicit snapshotted and direct default selection retain lazy Port fallback" do
+    Application.put_env(:codex_wrapper, :runner, Capture)
+    Application.put_env(:codex_wrapper, :runner_options, [])
+    implicit = Config.new(binary: "never")
+    assert implicit.runner_explicit == false
+
+    for config <- [implicit, %Config{binary: "never", runner_options: []}] do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          stream = Runner.stream_lines(config, "never", [], [], nil)
+          assert Enumerable.impl_for(stream)
+        end)
+
+      assert log =~ "falling back to CodexWrapper.Runner.Port"
+    end
+  end
+
+  test "explicit runners with streaming callbacks remain supported" do
+    config = Config.new(binary: "fake", runner: StreamCapture, runner_options: [])
+
+    for command <- [Exec.new("p"), ExecResume.new(), ExecFork.new("source"), Review.new()] do
+      mod = command.__struct__
+      assert [_event] = command |> mod.stream(config) |> Enum.to_list()
+    end
   end
 
   test "all one-shot commands and convenience paths use immutable runner options" do

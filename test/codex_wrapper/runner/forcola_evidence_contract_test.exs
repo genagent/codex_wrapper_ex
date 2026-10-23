@@ -72,10 +72,10 @@ defmodule CodexWrapper.Runner.ForcolaEvidenceContractTest do
     while :; do printf x; /bin/sleep 0.01; done
     """
 
-    config = fixture(ctx, script, timeout: 120)
+    config = fixture(ctx, script, timeout: 1_000)
     ref = ctx.reference
 
-    assert {:error, {:timeout, 120}} =
+    assert {:error, {:timeout, 1_000}} =
              Exec.execute(Exec.new("p"), config,
                session_observer: {self(), ref},
                execution_observer: {self(), ref}
