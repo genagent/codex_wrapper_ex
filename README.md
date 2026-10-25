@@ -837,11 +837,22 @@ SIGINT is sent.
 
 The optional [`forcola`](https://hexdocs.pm/forcola) dependency provides
 `CodexWrapper.Runner.Forcola`, which routes runs through a Rust shim that
-puts `codex` in its own process group and kills the whole group (SIGTERM
-then SIGKILL) on timeout, on close, or when the BEAM dies, so `codex` and
-its MCP servers are reaped together. `forcola` is POSIX-only (macOS and
-Linux) and ships precompiled shim binaries, so no Rust toolchain is
-required.
+puts `codex` in its own process group and signals the whole group on
+timeout, on close, or when the BEAM dies. One-shot runs send SIGINT first,
+SIGTERM after `interrupt_grace_ms` (default 2,000), then SIGKILL after
+`kill_grace_ms`; set `interrupt_signal: :int` and `interrupt_grace_ms` in
+`runner_options` to change the grace. The SIGINT step matters because codex
+puts each tool command and stdio MCP server in its own process group: on
+SIGINT codex stops the command it is running, while on SIGTERM alone it
+exits and leaves that command behind.
+
+Streaming runs through forcola still send SIGTERM then SIGKILL with no SIGINT
+step, because `Forcola.Stream` does not accept interrupt options yet
+(joshrotenberg/forcola#93); a tool command running when the stream ends can
+outlive codex. Neither runner stops descendants that leave codex's process
+group or ignore these signals. On Linux, forcola's cgroup option is the
+backstop; on macOS there is none. `forcola` is POSIX-only (macOS and Linux)
+and ships precompiled shim binaries, so no Rust toolchain is required.
 
 ```elixir
 # mix.exs

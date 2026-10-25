@@ -13,12 +13,23 @@ if Code.ensure_loaded?(Forcola) do
     A confirmed process group never proves containment of escaped descendants.
 
     Every `codex` invocation runs under forcola's Rust shim, which places
-    the CLI in its own process group and kills the whole group (SIGTERM,
-    then SIGKILL) on timeout or when the BEAM dies. That reaps `codex` and
-    every stdio MCP server it spawned together. The default
-    `CodexWrapper.Runner.Port` signals only the `codex` process (SIGINT,
-    SIGTERM, SIGKILL), so anything `codex` does not stop itself can outlive
-    it (see #48 and closed #33).
+    the CLI in its own process group and signals the whole group on timeout
+    or when the BEAM dies. One-shot runs send SIGINT first, then SIGTERM
+    after `interrupt_grace_ms` (default 2,000), then SIGKILL after
+    `kill_grace_ms`. Codex handles SIGINT by stopping the tool command it is
+    running; on SIGTERM alone it exits and leaves that command behind,
+    because codex puts each tool command and stdio MCP server in its own
+    process group (#119). Pass `interrupt_signal: :int` and
+    `interrupt_grace_ms` in `runner_options` to change the grace.
+
+    Streaming (`stream_lines/4`) still sends SIGTERM, then SIGKILL, with no
+    SIGINT step: `Forcola.Stream` does not accept interrupt options yet
+    (joshrotenberg/forcola#93). A codex tool command running when a stream
+    is halted or times out can outlive codex. The default
+    `CodexWrapper.Runner.Port` sends SIGINT first on both paths, but signals
+    only the `codex` process. Neither runner stops descendants that leave
+    codex's process group or ignore these signals; on Linux, forcola's
+    cgroup option is the backstop.
 
     forcola closes the child's stdin immediately after spawn (forcola
     0.3.4, forcola#67), so `codex` sees EOF naturally -- the `/bin/sh
@@ -52,6 +63,8 @@ if Code.ensure_loaded?(Forcola) do
     # configurable default rather than falling back to the leaky path.
     @default_timeout_ms 300_000
     @default_stream_timeout_ms 3_600_000
+    # Matches the Port runner's SIGINT grace before SIGTERM.
+    @default_interrupt_grace_ms 2_000
     @transport_options [
       :shim_path,
       :env_mode,
@@ -157,8 +170,14 @@ if Code.ensure_loaded?(Forcola) do
       end
     end
 
-    defp one_shot_opts(opts, timeout) do
-      Keyword.take(opts, [
+    @doc false
+    # One-shot options for `Forcola.run/2`. Without caller interrupt options,
+    # SIGINT goes to the group first: codex stops its own tool commands on
+    # SIGINT and only exits on SIGTERM (#119).
+    @spec one_shot_opts(keyword(), timeout() | nil) :: keyword()
+    def one_shot_opts(opts, timeout) do
+      opts
+      |> Keyword.take([
         :cd,
         :env,
         :shim_path,
@@ -169,11 +188,18 @@ if Code.ensure_loaded?(Forcola) do
         :interrupt_grace_ms,
         :kill_grace_ms
       ])
+      |> default_interrupt()
       |> Keyword.put(
         :timeout_ms,
         timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end)
       )
       |> Keyword.put(:merge_stderr, merge_stderr?(opts))
+    end
+
+    defp default_interrupt(opts) do
+      if Keyword.has_key?(opts, :interrupt_signal) or Keyword.has_key?(opts, :interrupt_grace_ms),
+        do: opts,
+        else: opts ++ [interrupt_signal: :int, interrupt_grace_ms: @default_interrupt_grace_ms]
     end
 
     defp project(

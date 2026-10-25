@@ -11,6 +11,21 @@ defmodule CodexWrapper.Runner.ForcolaTest do
     match?({_, 0}, System.cmd("kill", ["-0", pid], stderr_to_stdout: true))
   end
 
+  describe "one_shot_opts/2" do
+    test "defaults to SIGINT with a two-second grace" do
+      opts = Forcola.one_shot_opts([], 1_000)
+      assert opts[:interrupt_signal] == :int
+      assert opts[:interrupt_grace_ms] == 2_000
+      assert opts[:timeout_ms] == 1_000
+    end
+
+    test "keeps caller interrupt options" do
+      opts = Forcola.one_shot_opts([interrupt_signal: :int, interrupt_grace_ms: 250], 1_000)
+      assert Keyword.get_values(opts, :interrupt_signal) == [:int]
+      assert Keyword.get_values(opts, :interrupt_grace_ms) == [250]
+    end
+  end
+
   describe "run/4" do
     test "returns stdout and a zero exit on success" do
       assert {:ok, {"hi\n", 0}} = Forcola.run("echo", ["hi"], [], 5_000)
@@ -40,6 +55,22 @@ defmodule CodexWrapper.Runner.ForcolaTest do
     test "a missing binary returns a spawn error" do
       assert {:error, {:spawn, _reason}} =
                Forcola.run("definitely-not-a-real-binary-xyz", [], [], 5_000)
+    end
+
+    test "a timeout sends SIGINT before SIGTERM without caller interrupt options" do
+      marker =
+        Path.join(System.tmp_dir!(), "cxw_forcola_int_#{System.unique_integer([:positive])}")
+
+      on_exit(fn -> File.rm(marker) end)
+
+      script = """
+      trap 'exit 42' TERM
+      trap '/bin/sleep 0.1; printf interrupted > #{marker}; exit 0' INT
+      while :; do /bin/sleep 0.01; done
+      """
+
+      assert {:error, :timeout} = Forcola.run("sh", ["-c", script], [], 300)
+      assert File.read!(marker) == "interrupted"
     end
 
     @tag :forcola_kill
