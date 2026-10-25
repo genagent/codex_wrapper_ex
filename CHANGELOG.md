@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.7.0...v0.8.0) (2026-10-25)
+
+
+### Features
+
+* add structured output helper ([#136](https://github.com/genagent/codex_wrapper_ex/issues/136)) ([ba2ca84](https://github.com/genagent/codex_wrapper_ex/commit/ba2ca84aacce9d432adf30787e562242447d7cf4))
+
+
+### Bug Fixes
+
+* **port:** stop the watcher without racing its read ([#138](https://github.com/genagent/codex_wrapper_ex/issues/138)) ([18884ca](https://github.com/genagent/codex_wrapper_ex/commit/18884cae8c405059e1631b1fa9d81af3cb0eace5))
+
 ## [0.7.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.6.3...v0.7.0) (2026-10-23)
 
 
