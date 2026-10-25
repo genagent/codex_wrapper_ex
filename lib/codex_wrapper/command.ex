@@ -78,13 +78,18 @@ defmodule CodexWrapper.Command do
   # remove it.
   #
   # /bin/sleep is absolute because callers may replace PATH. Without it the
-  # watchdog stops after INT instead of escalating at once. Cancellation sets
-  # a flag: a foreground sleep finishes under its original parent and is
-  # reaped before the watcher exits. This avoids orphan timers and the
-  # signal/PID-assignment race of starting an asynchronous timer. A startup
-  # USR1 handshake confirms that cancellation is installed before a quick
-  # target's exit can make the supervisor cancel its watcher. The handler is
-  # removed before waiting for the target, so it cannot interrupt that wait.
+  # watchdog stops after INT instead of escalating at once. While the watcher
+  # waits in `read`, TERM keeps its default action and ends it outright: a
+  # trapped TERM that arrives just before `read` blocks is only acted on when
+  # `read` returns, which needs EOF the BEAM never sends while it waits for
+  # the shell (#134). The trap is installed once escalation starts. From then
+  # on cancellation sets a flag: a foreground sleep finishes under its
+  # original parent and is reaped before the watcher exits. This avoids
+  # orphan timers and the signal/PID-assignment race of starting an
+  # asynchronous timer. A startup USR1 handshake makes the supervisor wait
+  # until the watcher is running before a quick target's exit can make it
+  # cancel the watcher. The handler is removed before waiting for the target,
+  # so it cannot interrupt that wait.
   @doc false
   @spec shell_cmd_args(String.t(), [String.t()], keyword()) :: [String.t()]
   def shell_cmd_args(binary, args, opts \\ []) do
@@ -107,15 +112,13 @@ defmodule CodexWrapper.Command do
     "$@" #{target_redirects} &
     t=$!
     (
-      stopping=0
-      in_grace=0
-      trap 'stopping=1; [ "$in_grace" = 1 ] || exit 0' TERM
       kill -s USR1 "$supervisor" || exit 0
       while read -r _line; do :; done
-      [ "$stopping" = 0 ] || exit 0
+      stopping=0
+      trap 'stopping=1' TERM
       kill -s INT "$t" || exit 0
       [ -x /bin/sleep ] || exit 0
-      in_grace=1
+      [ "$stopping" = 0 ] || exit 0
       /bin/sleep #{@int_grace_s}
       [ "$stopping" = 0 ] || exit 0
       kill -s TERM "$t" || exit 0
