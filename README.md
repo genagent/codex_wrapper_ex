@@ -254,6 +254,33 @@ exec review` reject that flag with `unexpected argument`, so on
 override `-c sandbox_mode="<mode>"` instead. The public API and the
 three accepted modes are the same either way.
 
+## Structured output
+
+`CodexWrapper.Structured.run/4` takes a JSON Schema as a map, writes it to a
+private temporary `--output-schema` file for the life of the process, runs
+the command with `--json`, and decodes the final agent message. It accepts
+`Exec`, `ExecResume`, `ExecFork` and `Review` commands.
+
+```elixir
+schema = %{
+  "type" => "object",
+  "properties" => %{"name" => %{"type" => "string"}},
+  "required" => ["name"],
+  "additionalProperties" => false
+}
+
+{:ok, %{"name" => name}, %{result: _result, events: _events}} =
+  CodexWrapper.Exec.new("Extract the name from: Hi, I'm Ada Lovelace.")
+  |> CodexWrapper.Structured.run(schema, config)
+```
+
+Codex enforces the schema; the wrapper checks only that the final message is
+a JSON object or array. Pass `parse: fn value -> {:ok, ...} | {:error, ...} end`
+for a caller-side domain check. Failed turns, non-zero exits, missing terminal
+events, missing or invalid messages and parser failures are distinct tagged
+errors that keep the result and events. `Structured.decode/2` decodes a
+`%Result{}` from a run that used an explicit schema path.
+
 ## Session resumption
 
 Resume a previous session:
