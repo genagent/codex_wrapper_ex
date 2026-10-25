@@ -39,6 +39,9 @@ defmodule Mix.Tasks.Codex.Contract do
 
   @requirements ["app.start"]
 
+  @enum_config_keys ~w(approval_policy web_search sandbox_mode)
+  @sentinel "__codex_wrapper_contract_probe__"
+
   # Each entry: {label, argv the builder produces}. Built maximally so
   # every option this wrapper can emit shows up in the arg list.
   defp specs do
@@ -76,6 +79,7 @@ defmodule Mix.Tasks.Codex.Contract do
     |> ExecResume.last()
     |> ExecResume.skip_git_repo_check()
     |> ExecResume.ephemeral()
+    |> ExecResume.output_schema("/tmp/schema.json")
     |> ExecResume.json()
     |> ExecResume.output_last_message("/tmp/last.txt")
   end
@@ -109,18 +113,23 @@ defmodule Mix.Tasks.Codex.Contract do
     |> Review.skip_git_repo_check()
     |> Review.ephemeral()
     |> Review.json()
+    |> Review.output_schema("/tmp/schema.json")
     |> Review.output_last_message("/tmp/last.txt")
   end
 
   @impl Mix.Task
   def run(_argv) do
-    binary = System.find_executable("codex") || Mix.raise("codex not found on PATH")
+    binary =
+      System.get_env("CODEX_CONTRACT_BIN") || System.find_executable("codex") ||
+        Mix.raise("codex not found; set CODEX_CONTRACT_BIN or put it on PATH")
+
+    verify_version!(version(binary), System.get_env("CODEX_CONTRACT_VERSION"))
 
     Mix.shell().info("codex: #{binary}")
     Mix.shell().info(version(binary))
     Mix.shell().info("")
 
-    findings = Enum.flat_map(specs(), &check(binary, &1))
+    findings = check(binary)
 
     if findings == [] do
       Mix.shell().info("No drift: every emitted flag is still accepted.")
@@ -139,6 +148,20 @@ defmodule Mix.Tasks.Codex.Contract do
     end
   end
 
+  @doc false
+  @spec check(String.t(), [{String.t(), [String.t()]}]) :: [String.t()]
+  def check(binary, commands \\ specs()) do
+    Enum.flat_map(commands, &check_command(binary, &1))
+  end
+
+  defp verify_version!(_reported, nil), do: :ok
+
+  defp verify_version!(reported, expected) do
+    unless Regex.run(~r/\b\d+\.\d+\.\d+\b/, reported) == [expected] do
+      Mix.raise("expected codex #{expected}, got: #{reported}")
+    end
+  end
+
   defp version(binary) do
     case System.cmd(binary, ["--version"], stderr_to_stdout: true) do
       {out, 0} -> String.trim(out)
@@ -146,7 +169,7 @@ defmodule Mix.Tasks.Codex.Contract do
     end
   end
 
-  defp check(binary, {label, argv}) do
+  defp check_command(binary, {label, argv}) do
     subcommand = String.split(label)
     {flags, config_keys} = split_emitted(argv)
     accepted = help_flags(binary, subcommand)
@@ -158,10 +181,13 @@ defmodule Mix.Tasks.Codex.Contract do
 
     missing_keys =
       config_keys
-      |> Enum.reject(&config_key_accepted?(binary, subcommand, &1))
-      |> Enum.map(&"#{label}: -c #{&1} was rejected under --strict-config")
+      |> Enum.flat_map(&check_config_key(binary, subcommand, label, &1))
 
-    missing_flags ++ missing_keys
+    if MapSet.size(accepted) == 0 do
+      ["#{label}: help returned no option flags; contract check would be blind"]
+    else
+      missing_flags ++ missing_keys
+    end
   end
 
   # Walk the argv, separating named flags from the `-c key=value` pairs.
@@ -196,12 +222,32 @@ defmodule Mix.Tasks.Codex.Contract do
 
   # `--strict-config` rejects unknown config keys. `--help` short-circuits
   # before the run, so this costs nothing and needs no auth.
-  defp config_key_accepted?(binary, subcommand, kv) do
-    args = subcommand ++ ["--strict-config", "-c", kv, "--help"]
+  defp check_config_key(binary, subcommand, label, kv) do
+    key = kv |> String.split("=", parts: 2) |> hd()
 
-    case System.cmd(binary, args, stderr_to_stdout: true) do
-      {_out, 0} -> true
-      _ -> false
+    if key in @enum_config_keys do
+      probe_enum_key(binary, subcommand, label, key)
+    else
+      ["#{label}: refusing unsafe config probe for #{key}; add a bounded probe first"]
+    end
+  end
+
+  # exec fork requires an id at clap parsing, before config is loaded. The
+  # invalid enum still prevents this synthetic id from being read or forked.
+  defp probe_args(["exec", "fork"]), do: ["exec", "fork", "contract-probe-session"]
+  defp probe_args(subcommand), do: subcommand
+
+  defp probe_enum_key(binary, subcommand, label, key) do
+    # --help bypasses config loading. An impossible enum value fails before
+    # inference and proves the key is recognized instead of accepting help's 0.
+    args = probe_args(subcommand) ++ ["--strict-config", "-c", ~s(#{key}="#{@sentinel}")]
+    {output, code} = System.cmd(binary, args, stderr_to_stdout: true)
+
+    if code != 0 and String.contains?(output, @sentinel) and
+         String.contains?(output, "unknown variant") do
+      []
+    else
+      ["#{label}: #{key} did not reject the enum sentinel; config drift or blind probe"]
     end
   end
 end
