@@ -89,3 +89,30 @@ jobs:
 
       - name: Build docs
         run: mix docs --warnings-as-errors
+
+  contract:
+    name: CLI contract (codex ${{ matrix.codex }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        codex: ["0.149.0", "0.164.0"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "27"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install pinned native CLI
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codex-cli" --ignore-scripts --no-audit --no-fund "@openai/codex@${{ matrix.codex }}"
+          echo "CODEX_CONTRACT_BIN=$RUNNER_TEMP/codex-cli/node_modules/.bin/codex" >> "$GITHUB_ENV"
+      - name: Install dependencies
+        run: mix deps.get
+      - name: Check native flags and config diagnostics without inference
+        env:
+          CODEX_CONTRACT_VERSION: ${{ matrix.codex }}
+        run: mix codex.contract

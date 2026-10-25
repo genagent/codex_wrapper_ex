@@ -29,7 +29,7 @@ to point at it).
 
 ## Codex CLI compatibility
 
-Tested against codex-cli 0.149.0.
+Tested against codex-cli 0.149.0 and 0.164.0. Both are pinned in PR CI.
 
 The Codex CLI moves quickly and has removed flags between releases, so a
 wrapper release is only known to match the version recorded here. Subcommands
@@ -40,6 +40,11 @@ this wrapper does not cover -- including the experimental `app-server`,
 ```elixir
 CodexWrapper.raw(["some", "new", "subcommand"])
 ```
+
+The native contract checks help and closed-enum config rejection without authentication
+or model inference. Set `CODEX_CONTRACT_BIN` to select an explicit executable and
+`CODEX_CONTRACT_VERSION` to require its reported version. Controlled fake binaries
+test that the checker can reject drift; they do not replace these native checks.
 
 Keeping the version current is part of the release checklist: bump the line
 above whenever the wrapper is verified against a newer CLI. The weekly
