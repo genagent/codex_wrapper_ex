@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/genagent/codex_wrapper_ex/compare/v0.8.0...v0.8.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **forcola:** send SIGINT first on one-shot runs by default ([#139](https://github.com/genagent/codex_wrapper_ex/issues/139)) ([7f472e6](https://github.com/genagent/codex_wrapper_ex/commit/7f472e6c36026dae9700e9396ec0f982c6314074))
+
 ## [0.8.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.7.0...v0.8.0) (2026-10-25)
 
 
