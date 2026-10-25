@@ -54,8 +54,13 @@ defmodule Mix.Tasks.Codex.ContractTest do
   end
 
   defp fake_cli(probe_reply \\ "echo 'unknown variant __codex_wrapper_contract_probe__'; exit 1") do
-    dir = Path.join(System.tmp_dir!(), "codex-contract-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(dir)
+    dir =
+      Path.join(
+        System.tmp_dir!(),
+        "codex-contract-#{System.pid()}-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
     binary = Path.join(dir, "codex")
     calls = Path.join(dir, "calls")
