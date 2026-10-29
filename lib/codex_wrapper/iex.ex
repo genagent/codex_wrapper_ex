@@ -62,6 +62,9 @@ defmodule CodexWrapper.IEx do
   Continue the current conversation. Prints the response.
 
   Accepts per-turn exec option overrides.
+
+  A turn that fails (see `CodexWrapper.Session.send/3`) prints codex's
+  output, returns `{:error, reason}` and leaves the session unchanged.
   """
   def say(prompt, opts \\ []) do
     case Process.get(@session_key) do
@@ -184,6 +187,11 @@ defmodule CodexWrapper.IEx do
         Process.put(@session_key, new_session)
         print_result(result, new_session)
         :ok
+
+      {:error, {:exit, code, %Result{} = result}} = error ->
+        IO.puts(result.stdout)
+        IO.puts("\e[31mcodex exited with status #{code}\e[0m")
+        error
 
       {:error, reason} ->
         IO.puts("\e[31mError: #{inspect(reason)}\e[0m")
