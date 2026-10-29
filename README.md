@@ -100,6 +100,15 @@ CodexWrapper.Session.turn_count(session)
 #=> 2
 ```
 
+Session options are the exec options in the table under
+[Exec options](#exec-options) and apply to every turn. Resumed turns run
+`codex exec resume`, which rejects `--profile`, `--cd`, `--add-dir`,
+`--color`, `--oss` and `--local-provider` and has no `--search`, so
+`:profile`, `:cd`, `:add_dir`, `:color`, `:oss`, `:local_provider` and
+`:search` apply to the first turn only. `:sandbox` and `:approval_policy`
+are emitted on resumed turns as `-c sandbox_mode="..."` and
+`-c approval_policy="..."`.
+
 ## IEx REPL
 
 Use Codex conversationally from IEx:
@@ -918,7 +927,7 @@ streams.
 | `:full_auto` | `boolean()` | Enable full-auto mode |
 | `:cd` | `String.t()` | Working directory for codex subprocess |
 | `:skip_git_repo_check` | `boolean()` | Skip git repository check |
-| `:search` | `boolean()` | Enable live web search |
+| `:search` | `boolean()` or atom | `true` for live search, or `:cached`, `:indexed`, `:live`, `:disabled` |
 | `:ephemeral` | `boolean()` | Disable session persistence |
 | `:json` | `boolean()` | Enable JSON (NDJSON) output |
 | `:output_schema` | `String.t()` | Path to output schema file |
@@ -930,6 +939,20 @@ streams.
 | `:color` | atom | `:always`, `:never`, or `:auto` (Exec only) |
 | `:oss` | `boolean()` | Use an open-source provider (Exec only) |
 | `:local_provider` | `String.t()` | `"lmstudio"` or `"ollama"` (Exec only) |
+| `:add_dir` | `String.t()` or list | Extra writable directory (Exec only) |
+| `:image` | `String.t()` or list | Image to attach (Exec and resumed turns) |
+| `:config` | `String.t()` or list | `key=value` config override (`-c`) |
+| `:enable` / `:disable` | `String.t()` or list | Feature flag to enable or disable |
+
+`CodexWrapper.exec/2`, `exec_json/2`, `stream/2`, `review/1` and
+`CodexWrapper.Session` raise `ArgumentError` on an option not listed for
+them, and on a value of the wrong type. `review/1` takes the review target
+options listed in its docs plus `:model`, `:sandbox`, `:full_auto`,
+`:dangerously_bypass_approvals_and_sandbox`, `:skip_git_repo_check`,
+`:ephemeral`, `:json`, `:output_schema`, `:output_last_message`,
+`:strict_config`, `:ignore_user_config`, `:ignore_rules`,
+`:dangerously_bypass_hook_trust`, `:config`, `:enable` and `:disable` from
+this table.
 
 ## Modules
 

@@ -28,6 +28,7 @@ defmodule CodexWrapper.ExecResume do
   alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Runner, Telemetry}
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
+  @type approval_policy :: :untrusted | :on_request | :never
 
   @type t :: %__MODULE__{
           session_id: String.t() | nil,
@@ -36,6 +37,7 @@ defmodule CodexWrapper.ExecResume do
           all: boolean(),
           model: String.t() | nil,
           sandbox: sandbox_mode() | nil,
+          approval_policy: approval_policy() | nil,
           full_auto: boolean(),
           dangerously_bypass_approvals_and_sandbox: boolean(),
           dangerously_bypass_hook_trust: boolean(),
@@ -60,6 +62,7 @@ defmodule CodexWrapper.ExecResume do
     :output_schema,
     :output_last_message,
     :sandbox,
+    :approval_policy,
     last: false,
     all: false,
     full_auto: false,
@@ -117,6 +120,27 @@ defmodule CodexWrapper.ExecResume do
   """
   @spec sandbox(t(), sandbox_mode()) :: t()
   def sandbox(%__MODULE__{} = e, mode), do: %{e | sandbox: mode}
+
+  @doc """
+  Set the approval policy.
+
+  One of `:untrusted`, `:on_request`, or `:never`. Emitted as the
+  `-c approval_policy="<value>"` config override, as `CodexWrapper.Exec`
+  does: `codex exec resume` has no approval flag. `:on_failure` is no
+  longer a valid policy; passing it raises.
+  """
+  @spec approval_policy(t(), approval_policy()) :: t()
+  def approval_policy(%__MODULE__{}, :on_failure) do
+    raise ArgumentError, """
+    :on_failure is no longer a valid approval policy.
+
+    The Codex CLI dropped it along with the --ask-for-approval flag.
+    Valid policies are :untrusted, :on_request, and :never.
+    """
+  end
+
+  def approval_policy(%__MODULE__{} = e, policy) when policy in [:untrusted, :on_request, :never],
+    do: %{e | approval_policy: policy}
 
   @doc """
   Enable full-auto mode.
@@ -350,8 +374,17 @@ defmodule CodexWrapper.ExecResume do
   # User-supplied overrides come first, so an explicit `sandbox/2` call
   # wins on a last-wins CLI.
   defp config_overrides(%__MODULE__{} = e) do
-    e.config_overrides ++ sandbox_override(e)
+    e.config_overrides ++ approval_override(e) ++ sandbox_override(e)
   end
+
+  defp approval_override(%__MODULE__{approval_policy: nil}), do: []
+
+  defp approval_override(%__MODULE__{approval_policy: policy}),
+    do: [~s(approval_policy="#{format_approval_policy(policy)}")]
+
+  defp format_approval_policy(:untrusted), do: "untrusted"
+  defp format_approval_policy(:on_request), do: "on-request"
+  defp format_approval_policy(:never), do: "never"
 
   defp sandbox_override(%__MODULE__{} = e) do
     case format_sandbox(effective_sandbox(e)) do

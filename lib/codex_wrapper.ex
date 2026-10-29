@@ -26,7 +26,7 @@ defmodule CodexWrapper do
   """
 
   alias CodexWrapper.Commands.{Completion, Version}
-  alias CodexWrapper.{Config, Exec, JsonLineEvent, Result, Review, Runner}
+  alias CodexWrapper.{Config, Exec, JsonLineEvent, Options, Result, Review, Runner}
 
   @doc """
   Get the Codex CLI version.
@@ -92,7 +92,8 @@ defmodule CodexWrapper do
   Execute a prompt non-interactively and return the result.
 
   Convenience wrapper that builds a `Config` and `Exec` from keyword options.
-  Returns `{:ok, %Result{}}` on success or `{:error, reason}` on failure.
+  Returns `{:ok, %Result{}}` when codex ran, or `{:error, reason}` when it
+  could not be run or timed out.
 
   ## Options
 
@@ -115,18 +116,32 @@ defmodule CodexWrapper do
   Exec options (passed to `Exec` builder):
     * `:model` - Model name
     * `:profile` - Named config profile (`--profile`)
-    * `:sandbox` - Sandbox mode atom
+    * `:sandbox` - `:read_only`, `:workspace_write`, or `:danger_full_access`
     * `:approval_policy` - Approval policy atom (`:untrusted`, `:on_request`, `:never`)
     * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
+    * `:dangerously_bypass_hook_trust` - Run hooks without persisted trust (boolean)
+    * `:strict_config` - Fail on unrecognized `config.toml` keys (boolean)
+    * `:ignore_user_config` - Skip `$CODEX_HOME/config.toml` (boolean)
+    * `:ignore_rules` - Skip execpolicy `.rules` files (boolean)
+    * `:color` - `:always`, `:never`, or `:auto`
+    * `:oss` - Use an open-source provider (boolean)
+    * `:local_provider` - Local provider name (`"lmstudio"` or `"ollama"`)
     * `:cd` - Working directory for codex subprocess
     * `:skip_git_repo_check` - Skip git check (boolean)
+    * `:add_dir` - Extra writable directory, or a list of them
     * `:search` - Web search: `true` (live), `false`, or a mode atom
       (`:cached`, `:indexed`, `:live`, `:disabled`)
     * `:ephemeral` - Ephemeral mode (boolean)
     * `:json` - JSON output (boolean)
     * `:output_schema` - Output schema path
     * `:output_last_message` - Output last message path
+    * `:image` - Image path, or a list of them
+    * `:config` - `key=value` config override, or a list of them
+    * `:enable` / `:disable` - Feature name, or a list of them
+
+  An unknown option, or a value of the wrong type, raises `ArgumentError`.
+  A nonzero exit returns `{:ok, %Result{success: false}}`.
 
   ## Examples
 
@@ -137,7 +152,7 @@ defmodule CodexWrapper do
   def exec(prompt, opts \\ []) do
     {config_opts, exec_opts, execution_opts} = split_opts(opts)
     config = Config.new(config_opts)
-    exec = build_exec(prompt, exec_opts)
+    exec = Options.exec(prompt, exec_opts)
     Exec.execute(exec, config, execution_opts)
   end
 
@@ -154,7 +169,7 @@ defmodule CodexWrapper do
   def exec_json(prompt, opts \\ []) do
     {config_opts, exec_opts, execution_opts} = split_opts(opts)
     config = Config.new(config_opts)
-    exec = build_exec(prompt, exec_opts)
+    exec = Options.exec(prompt, exec_opts)
     Exec.execute_json(exec, config, execution_opts)
   end
 
@@ -178,7 +193,7 @@ defmodule CodexWrapper do
       do: raise(ArgumentError, "execution_observer is supported only by one-shot execution")
 
     config = Config.new(config_opts)
-    exec = build_exec(prompt, exec_opts)
+    exec = Options.exec(prompt, exec_opts)
     Exec.stream(exec, config)
   end
 
@@ -186,7 +201,8 @@ defmodule CodexWrapper do
   Run a code review via `codex exec review`.
 
   Convenience wrapper that builds a `Config` and `Review` from keyword options.
-  Returns `{:ok, %Result{}}` on success or `{:error, reason}` on failure.
+  Returns `{:ok, %Result{}}` when codex ran, or `{:error, reason}` when it
+  could not be run or timed out.
 
   ## Options
 
@@ -215,13 +231,24 @@ defmodule CodexWrapper do
     * `:commit` - Review a specific commit
     * `:title` - PR/review title
     * `:model` - Model name
-    * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
+    * `:sandbox` - `:read_only`, `:workspace_write`, or `:danger_full_access`;
+      emits `-c sandbox_mode="..."`
+    * `:full_auto` - Deprecated; emits `-c sandbox_mode="workspace-write"` (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
+    * `:dangerously_bypass_hook_trust` - Run hooks without persisted trust (boolean)
+    * `:strict_config` - Fail on unrecognized `config.toml` keys (boolean)
+    * `:ignore_user_config` - Skip `$CODEX_HOME/config.toml` (boolean)
+    * `:ignore_rules` - Skip execpolicy `.rules` files (boolean)
     * `:skip_git_repo_check` - Skip git check (boolean)
     * `:ephemeral` - Ephemeral mode (boolean)
     * `:output_schema` - Output schema path
     * `:json` - JSON output (boolean)
     * `:output_last_message` - Output last message path
+    * `:config` - `key=value` config override, or a list of them
+    * `:enable` / `:disable` - Feature name, or a list of them
+
+  An unknown option, or a value of the wrong type, raises `ArgumentError`.
+  A nonzero exit returns `{:ok, %Result{success: false}}`.
 
   ## Examples
 
@@ -232,7 +259,7 @@ defmodule CodexWrapper do
   def review(opts \\ []) do
     {config_opts, review_opts, execution_opts} = split_opts(opts)
     config = Config.new(config_opts)
-    review = build_review(review_opts)
+    review = Options.review(review_opts)
     Review.execute(review, config, execution_opts)
   end
 
@@ -256,140 +283,5 @@ defmodule CodexWrapper do
       Keyword.split(remaining, [:session_observer, :execution_observer])
 
     {config_opts, command_opts, execution_opts}
-  end
-
-  defp build_review(opts) do
-    review = Review.new()
-
-    Enum.reduce(opts, review, fn
-      {:prompt, v}, r ->
-        Review.prompt(r, v)
-
-      {:uncommitted, true}, r ->
-        Review.uncommitted(r)
-
-      {:uncommitted, false}, r ->
-        r
-
-      {:base, v}, r ->
-        Review.base(r, v)
-
-      {:commit, v}, r ->
-        Review.commit(r, v)
-
-      {:title, v}, r ->
-        Review.title(r, v)
-
-      {:model, v}, r ->
-        Review.model(r, v)
-
-      {:full_auto, true}, r ->
-        Review.full_auto(r)
-
-      {:full_auto, false}, r ->
-        r
-
-      {:dangerously_bypass_approvals_and_sandbox, true}, r ->
-        Review.dangerously_bypass_approvals_and_sandbox(r)
-
-      {:dangerously_bypass_approvals_and_sandbox, false}, r ->
-        r
-
-      {:skip_git_repo_check, true}, r ->
-        Review.skip_git_repo_check(r)
-
-      {:skip_git_repo_check, false}, r ->
-        r
-
-      {:ephemeral, true}, r ->
-        Review.ephemeral(r)
-
-      {:ephemeral, false}, r ->
-        r
-
-      {:output_schema, v}, r ->
-        Review.output_schema(r, v)
-
-      {:json, true}, r ->
-        Review.json(r)
-
-      {:json, false}, r ->
-        r
-
-      {:output_last_message, v}, r ->
-        Review.output_last_message(r, v)
-
-      _other, r ->
-        r
-    end)
-  end
-
-  defp build_exec(prompt, opts) do
-    exec = Exec.new(prompt)
-
-    Enum.reduce(opts, exec, fn
-      {:model, v}, e ->
-        Exec.model(e, v)
-
-      {:profile, v}, e ->
-        Exec.profile(e, v)
-
-      {:sandbox, v}, e ->
-        Exec.sandbox(e, v)
-
-      {:approval_policy, v}, e ->
-        Exec.approval_policy(e, v)
-
-      {:full_auto, true}, e ->
-        Exec.full_auto(e)
-
-      {:full_auto, false}, e ->
-        e
-
-      {:dangerously_bypass_approvals_and_sandbox, true}, e ->
-        Exec.dangerously_bypass_approvals_and_sandbox(e)
-
-      {:dangerously_bypass_approvals_and_sandbox, false}, e ->
-        e
-
-      {:cd, v}, e ->
-        Exec.cd(e, v)
-
-      {:skip_git_repo_check, true}, e ->
-        Exec.skip_git_repo_check(e)
-
-      {:skip_git_repo_check, false}, e ->
-        e
-
-      {:search, true}, e ->
-        Exec.search(e)
-
-      {:search, false}, e ->
-        e
-
-      {:search, mode}, e when is_atom(mode) ->
-        Exec.search(e, mode)
-
-      {:ephemeral, true}, e ->
-        Exec.ephemeral(e)
-
-      {:ephemeral, false}, e ->
-        e
-
-      {:json, true}, e ->
-        Exec.json(e)
-
-      {:json, false}, e ->
-        e
-
-      {:output_schema, v}, e ->
-        Exec.output_schema(e, v)
-
-      {:output_last_message, v}, e ->
-        Exec.output_last_message(e, v)
-
-      _other, e ->
-        e
-    end)
   end
 end
