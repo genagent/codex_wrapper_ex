@@ -51,7 +51,11 @@ defmodule CodexWrapper.PortArgvTest do
 
       # Embedded newlines become line frames; length prefixes retain argument
       # boundaries, including both literal empty arguments.
-      assert lines == context.stdout |> String.split("\n") |> Enum.drop(-1)
+      # The script exits 7, which ends the stream with an exit_status item.
+      assert lines ==
+               (context.stdout |> String.split("\n") |> Enum.drop(-1)) ++
+                 [{:error, {:exit_status, 7}}]
+
       refute File.exists?(Path.join(context.tmp_dir, "created"))
     end
   end

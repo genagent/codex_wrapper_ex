@@ -103,11 +103,22 @@ defmodule CodexWrapper.Runner.ForcolaTest do
       assert lines == ["out"]
     end
 
-    test "a non-zero exit ends the stream rather than raising" do
-      # Forcola.Stream.lines/2 raises here; the Runner contract is a clean
-      # halt, matching Runner.Port.
-      assert ["one"] =
+    test "a non-zero exit ends the stream with an exit_status item" do
+      # Forcola.Stream.lines/2 raises here; the Runner contract is a final
+      # error item, matching Runner.Port.
+      assert ["one", {:error, {:exit_status, 3}}] =
                Forcola.stream_lines("sh", ["-c", "echo one; exit 3"], [], 5_000)
+               |> Enum.to_list()
+    end
+
+    test "a zero exit ends the stream with no error item" do
+      assert ["one"] =
+               Forcola.stream_lines("sh", ["-c", "echo one"], [], 5_000) |> Enum.to_list()
+    end
+
+    test "death by signal ends the stream with a signal item" do
+      assert ["one", {:error, {:signal, _}}] =
+               Forcola.stream_lines("sh", ["-c", "echo one; kill -9 $$"], [], 5_000)
                |> Enum.to_list()
     end
 
@@ -134,8 +145,8 @@ defmodule CodexWrapper.Runner.ForcolaTest do
                |> Enum.to_list()
     end
 
-    test "a missing binary yields an empty stream rather than raising" do
-      assert [] =
+    test "a missing binary ends the stream with a spawn item rather than raising" do
+      assert [{:error, {:spawn, _reason}}] =
                Forcola.stream_lines("definitely-not-a-real-binary-xyz", [], [], 5_000)
                |> Enum.to_list()
     end

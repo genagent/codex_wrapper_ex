@@ -44,9 +44,12 @@ defmodule CodexWrapper.Runner do
   stream ends when the process exits. A deadline emits a final
   `{:error, {:timeout, ms}}` or `{:error, {:idle_timeout, ms}}` item.
 
-  A non-zero exit ends the stream *without* raising, on either runner --
-  the same silent-halt the streaming paths have always had. Callers that
-  need the exit code should use `execute/2` rather than `stream/2`.
+  A run that ends badly emits a final error item after its last line,
+  without raising: `{:error, {:exit_status, code}}` for a nonzero exit,
+  `{:error, {:spawn, reason}}` when the process could not be started, and
+  `{:error, {:signal, signal}}` when `Runner.Forcola` reports death by
+  signal. On `Runner.Port` a missing executable is exit status 127 from
+  the shell. A zero exit ends the stream with no error item.
   """
 
   @typedoc "Runner error reasons. `:timeout` is common to every runner."
@@ -55,6 +58,7 @@ defmodule CodexWrapper.Runner do
           | :idle_timeout
           | :max_output_bytes
           | :observer_overflow
+          | {:exit_status, pos_integer()}
           | {:signal, term()}
           | {:spawn, term()}
           | {:io, term()}

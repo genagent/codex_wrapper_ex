@@ -900,8 +900,12 @@ with `{:timeout, ms}` or `{:idle_timeout, ms}` in its `reason` field.
 Direct `Runner.stream_lines/4` consumers receive the corresponding
 `{:error, reason}` item before the stream ends.
 
-A non-zero exit ends a stream without raising on either runner -- the
-`Enumerable` simply finishes. Use `execute/2` when the exit code matters.
+A run that ends badly ends its stream with one final
+`%CodexWrapper.StreamError{}` after its last line, on either runner and
+without raising: `reason` is `{:exit_status, code}` for a nonzero exit
+(127 for a missing executable on `Runner.Port`), `{:spawn, reason}` when
+the process could not be started, or `{:signal, signal}` when
+`Runner.Forcola` reports death by signal. A zero exit adds nothing.
 
 A custom runner only has to implement `run/4`; `stream_lines/4` is
 optional, and a runner without it falls back to `Runner.Port` for
