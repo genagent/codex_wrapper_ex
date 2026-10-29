@@ -278,5 +278,6 @@ defmodule CodexWrapper.Runner.Port do
 
   defp port_env_part(value) when is_binary(value), do: String.to_charlist(value)
   defp port_env_part(value) when is_list(value), do: value
-  defp port_env_part(false), do: false
+  # nil or false unsets the variable; Port.open/2 takes false for that.
+  defp port_env_part(value) when value in [nil, false], do: false
 end

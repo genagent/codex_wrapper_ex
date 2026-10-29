@@ -189,11 +189,51 @@ if Code.ensure_loaded?(Forcola) do
         :kill_grace_ms
       ])
       |> default_interrupt()
+      |> one_shot_env()
       |> Keyword.put(
         :timeout_ms,
         timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end)
       )
       |> Keyword.put(:merge_stderr, merge_stderr?(opts))
+    end
+
+    # `Forcola.run/2` takes string values only. An unset (`nil` or `false`)
+    # is applied by replacing the environment with the computed one: the
+    # VM's environment (none under `env_mode: :replace`) with each entry
+    # applied in order.
+    defp one_shot_env(opts) do
+      {sets, unsets} = split_env(Keyword.get(opts, :env, []))
+
+      if unsets == [] do
+        if Keyword.has_key?(opts, :env), do: Keyword.put(opts, :env, sets), else: opts
+      else
+        base = if opts[:env_mode] == :replace, do: %{}, else: System.get_env()
+
+        env =
+          base
+          |> Map.drop(unsets)
+          |> Map.merge(Map.new(sets))
+          |> Enum.sort()
+
+        opts |> Keyword.put(:env, env) |> Keyword.put(:env_mode, :replace)
+      end
+    end
+
+    # The last entry for a name wins. Returns the names to set, in order,
+    # and the names to unset.
+    defp split_env(env) do
+      final =
+        env
+        |> CodexWrapper.Config.validate_env!()
+        |> Enum.reduce({%{}, []}, fn {name, value}, {values, order} ->
+          {Map.put(values, name, value), [name | List.delete(order, name)]}
+        end)
+
+      {values, order} = final
+      names = Enum.reverse(order)
+
+      {for(name <- names, is_binary(values[name]), do: {name, values[name]}),
+       for(name <- names, values[name] == false, do: name)}
     end
 
     defp default_interrupt(opts) do
@@ -240,19 +280,30 @@ if Code.ensure_loaded?(Forcola) do
       idle_timeout_ms = Keyword.get(opts, :idle_timeout_ms, 300_000)
       timeout = stream_timeout(timeout)
 
+      {sets, unsets} = split_env(Keyword.get(opts, :env, []))
+
       stream_opts =
         [timeout_ms: timeout, merge_stderr: merge_stderr?(opts)] ++
-          Keyword.take(opts, [:cd, :env])
+          Keyword.take(opts, [:cd]) ++ if(sets == [], do: [], else: [env: sets])
 
       stream_opts =
         if idle_timeout_ms,
           do: Keyword.put(stream_opts, :idle_timeout_ms, idle_timeout_ms),
           else: stream_opts
 
-      [binary | args]
+      unsets
+      |> env_unset_prefix()
+      |> Kernel.++([binary | args])
       |> Forcola.Stream.lines(stream_opts)
       |> halt_on_error(timeout, idle_timeout_ms)
     end
+
+    # `Forcola.Stream` rejects `:env_mode`, so a stream removes variables
+    # with `env -u`, which then execs the target in the same process group.
+    defp env_unset_prefix([]), do: []
+
+    defp env_unset_prefix(names),
+      do: ["/usr/bin/env" | Enum.flat_map(names, &["-u", &1])]
 
     # `Forcola.Stream.lines/2` raises on a non-zero exit, a signal, a
     # timeout, or a spawn failure. The wrapper's streaming contract ends
