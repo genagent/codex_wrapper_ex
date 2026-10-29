@@ -10,7 +10,7 @@ defmodule CodexWrapper.SessionServerTest do
 
       assert SessionServer.session_id(pid) == nil
       assert SessionServer.turn_count(pid) == 0
-      assert SessionServer.total_cost(pid) == 0.0
+      assert SessionServer.total_cost(pid) == nil
       assert SessionServer.last_result(pid) == nil
       assert SessionServer.history(pid) == []
     end

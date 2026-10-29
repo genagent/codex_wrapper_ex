@@ -114,7 +114,7 @@ iex> say("now add tests for the retry module")
 # => continues the conversation
 
 iex> cost()
-# cost and turn count
+# turn count; the Codex CLI reports no cost
 
 iex> history()
 # prints full conversation
