@@ -159,11 +159,13 @@ defmodule CodexWrapper.Session do
   @doc """
   Get the total cost across all turns.
 
-  Returns `0.0` as the Codex CLI does not currently expose per-turn cost.
-  This is provided for API compatibility with future cost reporting.
+  Returns `nil`: the Codex CLI reports token usage but no cost, so there
+  is no cost to sum. The function keeps the shape of the claude_wrapper
+  session API; callers that add up cost across providers should treat
+  `nil` as unknown, not as zero.
   """
-  @spec total_cost(t()) :: float()
-  def total_cost(%__MODULE__{}), do: 0.0
+  @spec total_cost(t()) :: float() | nil
+  def total_cost(%__MODULE__{}), do: nil
 
   @doc """
   Get the last result, if any.

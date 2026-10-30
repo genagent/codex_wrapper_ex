@@ -16,7 +16,7 @@ defmodule CodexWrapper.IEx do
       # => continues the conversation
 
       iex> cost()
-      # => $0.00 across 2 turns
+      # => 2 turns (cost not reported by the Codex CLI)
 
       iex> history()
       # => prints conversation
@@ -78,7 +78,10 @@ defmodule CodexWrapper.IEx do
   end
 
   @doc """
-  Show total cost and turn count for the current session.
+  Show the turn count for the current session.
+
+  Returns `nil`, since the Codex CLI reports no cost; see
+  `CodexWrapper.Session.total_cost/1`.
   """
   def cost do
     case Process.get(@session_key) do
@@ -87,10 +90,9 @@ defmodule CodexWrapper.IEx do
         :no_session
 
       session ->
-        total = Session.total_cost(session)
         turns = Session.turn_count(session)
-        IO.puts("\e[33m$#{Float.round(total, 4)} across #{turns} turn#{plural(turns)}\e[0m")
-        total
+        IO.puts("\e[33m#{turns} turn#{plural(turns)} (cost not reported by the Codex CLI)\e[0m")
+        Session.total_cost(session)
     end
   end
 
@@ -204,10 +206,8 @@ defmodule CodexWrapper.IEx do
     IO.puts(result.stdout)
     IO.puts("")
 
-    total = Session.total_cost(session)
     turns = Session.turn_count(session)
-
-    IO.puts("\e[33m($#{Float.round(total, 4)} total, #{turns} turn#{plural(turns)})\e[0m")
+    IO.puts("\e[33m(#{turns} turn#{plural(turns)})\e[0m")
   end
 
   @config_keys [:binary, :working_dir, :env, :timeout, :verbose]

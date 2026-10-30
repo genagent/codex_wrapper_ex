@@ -17,8 +17,8 @@ defmodule CodexWrapper.SessionServer do
       {:ok, result} = CodexWrapper.SessionServer.send_message(pid, "What files are here?")
       {:ok, result} = CodexWrapper.SessionServer.send_message(pid, "Add tests for lib/foo.ex")
 
-      CodexWrapper.SessionServer.total_cost(pid)
-      #=> 0.0
+      CodexWrapper.SessionServer.turn_count(pid)
+      #=> 2
 
   ## Supervision
 
@@ -106,8 +106,11 @@ defmodule CodexWrapper.SessionServer do
 
   @doc """
   Get the total cost across all turns.
+
+  Returns `nil`, since the Codex CLI reports no cost; see
+  `CodexWrapper.Session.total_cost/1`.
   """
-  @spec total_cost(server()) :: float()
+  @spec total_cost(server()) :: float() | nil
   def total_cost(server) do
     GenServer.call(server, :total_cost)
   end

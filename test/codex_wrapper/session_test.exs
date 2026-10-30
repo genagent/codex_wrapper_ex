@@ -66,10 +66,10 @@ defmodule CodexWrapper.SessionTest do
   end
 
   describe "total_cost/1" do
-    test "returns zero" do
+    test "returns nil, since codex reports no cost" do
       config = Config.new()
       session = Session.new(config)
-      assert Session.total_cost(session) == 0.0
+      assert Session.total_cost(session) == nil
     end
   end
 
