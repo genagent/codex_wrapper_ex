@@ -14,7 +14,7 @@ defmodule CodexWrapper.Config do
   @type t :: %__MODULE__{
           binary: String.t(),
           working_dir: String.t() | nil,
-          env: [{String.t(), String.t()}],
+          env: [{String.t(), String.t() | false}],
           timeout: pos_integer() | nil,
           idle_timeout_ms: pos_integer() | nil,
           verbose: boolean(),
@@ -45,7 +45,11 @@ defmodule CodexWrapper.Config do
     * `:binary` - Literal executable path or name on `PATH` (default: auto-discover).
       Shell commands and unexpanded `~` or environment-variable paths are not supported.
     * `:working_dir` - Working directory for the subprocess
-    * `:env` - List of `{key, value}` environment variable tuples
+    * `:env` - List of `{name, value}` environment variable tuples (a map is
+      also accepted). A string value sets the variable for the child; `nil` or
+      `false` removes an inherited variable, on every runner path. Names must
+      be nonempty and contain no `=`; names and values must contain no NUL.
+      Invalid entries raise `ArgumentError`. `nil` is stored as `false`.
     * `:timeout` - Whole-command timeout in milliseconds
     * `:idle_timeout_ms` - Maximum gap between output frames while streaming
       or using evidenced one-shot execution
@@ -76,7 +80,7 @@ defmodule CodexWrapper.Config do
     %__MODULE__{
       binary: opts[:binary] || find_binary(),
       working_dir: opts[:working_dir],
-      env: opts[:env] || [],
+      env: validate_env!(opts[:env] || []),
       timeout: opts[:timeout],
       idle_timeout_ms: Keyword.get(opts, :idle_timeout_ms, 300_000),
       verbose: verbose,
@@ -91,6 +95,46 @@ defmodule CodexWrapper.Config do
           end)
         )
     }
+  end
+
+  @doc false
+  @spec validate_env!(Enumerable.t()) :: [{String.t(), String.t() | false}]
+  def validate_env!(env) when is_list(env) or is_map(env) do
+    Enum.map(env, fn
+      {name, value} ->
+        {env_name!(name), env_value!(name, value)}
+
+      other ->
+        raise ArgumentError, "env entries must be {name, value} tuples, got: #{inspect(other)}"
+    end)
+  end
+
+  def validate_env!(env),
+    do: raise(ArgumentError, "env must be a list of {name, value} tuples, got: #{inspect(env)}")
+
+  defp env_name!(name) when is_list(name), do: env_name!(List.to_string(name))
+
+  defp env_name!(name) when is_binary(name) and name != "" do
+    if String.contains?(name, ["=", <<0>>]),
+      do: raise(ArgumentError, "env name must not contain = or NUL: #{inspect(name)}"),
+      else: name
+  end
+
+  defp env_name!(name),
+    do: raise(ArgumentError, "env name must be a nonempty string, got: #{inspect(name)}")
+
+  defp env_value!(_name, value) when value in [nil, false], do: false
+  defp env_value!(name, value) when is_list(value), do: env_value!(name, List.to_string(value))
+
+  defp env_value!(name, value) when is_binary(value) do
+    if String.contains?(value, <<0>>),
+      do: raise(ArgumentError, "env value for #{inspect(name)} must not contain NUL"),
+      else: value
+  end
+
+  defp env_value!(name, value) do
+    raise ArgumentError,
+          "env value for #{inspect(name)} must be a string, nil or false, got: #{inspect(value)}"
   end
 
   @doc """

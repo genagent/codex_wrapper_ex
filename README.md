@@ -666,12 +666,25 @@ Exception metadata adds the standard `:kind`, `:reason`, and
 |---|---|---|
 | `:binary` | `String.t()` | Path to `codex` binary (auto-discovered if omitted) |
 | `:working_dir` | `String.t()` | Working directory for the subprocess |
-| `:env` | `[{String.t(), String.t()}]` | Environment variables |
+| `:env` | `[{String.t(), String.t() \| nil \| false}]` | Environment variables for the child; `nil` or `false` removes an inherited variable |
 | `:timeout` | `pos_integer()` | Whole-command timeout in milliseconds; defaults to no whole-run bound for Port streams |
 | `:idle_timeout_ms` | `pos_integer() \| nil` | Maximum gap between output frames in a stream; defaults to 300,000 ms, or set `nil` to disable |
 | `:runner` | module or shorthand | Per-config runner; snapshots application default when absent |
 | `:runner_options` | keyword | Immutable one-shot transport requirements; explicit `[]` overrides application defaults |
 | `:verbose` | `boolean()` | Compatibility option: only `false` is supported; `true` raises before CLI execution |
+
+### Removing inherited variables
+
+`{name, nil}` and `{name, false}` in `:env` remove a variable the BEAM
+would otherwise pass to `codex`, on every runner path. When a name
+appears more than once, the last entry wins. `CodexWrapper.Config.new/1` raises
+`ArgumentError` on an empty name, a name containing `=`, a NUL byte, or
+a value that is not a string, `nil` or `false`.
+
+`Runner.Port` passes the unset to `Port.open/2`. `Runner.Forcola`
+one-shot calls replace the child environment with the computed one
+(`env_mode: :replace`). `Forcola.Stream` does not take `env_mode`, so a
+Forcola stream runs `/usr/bin/env -u NAME ...` in front of `codex`.
 
 ### Observing native thread identity before completion
 
