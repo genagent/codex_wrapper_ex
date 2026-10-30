@@ -108,13 +108,18 @@ defmodule CodexWrapper.SessionTest do
       assert Session.extract_session_id(events) == "019d799c-09f1-7ea0-8e5a-7b42a640c103"
     end
 
-    test "falls back to session_id if thread_id is absent" do
-      # Defensive path: older Codex versions or forks that may not emit thread_id.
+    test "ignores ids on events other than thread.started" do
       events = [
-        event("result", %{"session_id" => "legacy-sid-123"})
+        event("result", %{"session_id" => "legacy-sid-123"}),
+        event("item.completed", %{"thread_id" => "other"})
       ]
 
-      assert Session.extract_session_id(events) == "legacy-sid-123"
+      assert Session.extract_session_id(events) == nil
+    end
+
+    test "ignores a blank or non-string thread_id" do
+      assert Session.extract_session_id([event("thread.started", %{"thread_id" => " "})]) == nil
+      assert Session.extract_session_id([event("thread.started", %{"thread_id" => 7})]) == nil
     end
 
     test "prefers thread_id when both are present" do
@@ -128,7 +133,7 @@ defmodule CodexWrapper.SessionTest do
       assert Session.extract_session_id(events) == "new-thread"
     end
 
-    test "returns nil when neither thread_id nor session_id is present" do
+    test "returns nil when no thread.started event is present" do
       events = [
         event("turn.started", %{}),
         event("turn.completed", %{"usage" => %{"input_tokens" => 1, "output_tokens" => 1}})

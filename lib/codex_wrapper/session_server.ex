@@ -77,7 +77,10 @@ defmodule CodexWrapper.SessionServer do
   @doc """
   Send a message in the session. Blocks until the CLI responds.
 
-  Returns `{:ok, %Result{}}` or `{:error, reason}`.
+  Returns `{:ok, %Result{}}`, or the error `CodexWrapper.Session.send/3`
+  returns: `{:error, {:exit, code, result}}` for a nonzero exit and
+  `{:error, {:thread_mismatch, expected, reported, result}}` for a
+  different thread ID. A failed turn leaves the session unchanged.
   """
   @spec send_message(server(), String.t(), keyword()) ::
           {:ok, Result.t()} | {:error, term()}

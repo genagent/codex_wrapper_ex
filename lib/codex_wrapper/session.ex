@@ -84,24 +84,31 @@ defmodule CodexWrapper.Session do
   The first turn creates a new session via `Exec`. Subsequent turns use
   `ExecResume` with the session ID from the first result.
 
-  Internally uses `--json` to extract the session ID from NDJSON events.
+  Internally uses `--json` and takes the session ID from the turn's
+  `thread.started` event.
+
+  Returns:
+
+    * `{:ok, session, result}` when codex exited 0. `result` carries the
+      turn's real output and exit code.
+    * `{:error, {:exit, code, result}}` when codex exited nonzero. The
+      session is unchanged: no history entry and the same session ID.
+    * `{:error, {:thread_mismatch, expected, reported, result}}` when a
+      session resumed by UUID reports a different thread ID. The session is
+      unchanged. A session resumed by thread name adopts the reported ID.
+    * `{:error, reason}` when codex could not be run or timed out.
   """
-  @spec send(t(), String.t(), keyword()) :: {:ok, t(), Result.t()} | {:error, term()}
+  @spec send(t(), String.t(), keyword()) ::
+          {:ok, t(), Result.t()}
+          | {:error,
+             {:exit, non_neg_integer(), Result.t()}
+             | {:thread_mismatch, String.t(), String.t(), Result.t()}
+             | term()}
   def send(%__MODULE__{} = session, prompt, opts \\ []) do
-    case execute_turn(session, prompt, opts) do
-      {:ok, result, events} ->
-        new_session_id = extract_session_id(events) || session.session_id
-
-        updated = %{
-          session
-          | session_id: new_session_id,
-            history: session.history ++ [result]
-        }
-
-        {:ok, updated, result}
-
-      {:error, _} = error ->
-        error
+    with {:ok, result, events} <- execute_turn(session, prompt, opts),
+         {:ok, session_id} <- next_session_id(session.session_id, events, result) do
+      updated = %{session | session_id: session_id, history: session.history ++ [result]}
+      {:ok, updated, result}
     end
   end
 
@@ -212,14 +219,7 @@ defmodule CodexWrapper.Session do
     metadata = Telemetry.session_turn_metadata(:session_exec, exec, session.session_id)
 
     Telemetry.span([:codex_wrapper, :session, :turn], metadata, fn ->
-      case Exec.execute_json(exec, session.config) do
-        {:ok, events} ->
-          result = events_to_result(events)
-          {:ok, result, events}
-
-        {:error, _} = error ->
-          error
-      end
+      exec |> Exec.json() |> Exec.execute(session.config) |> turn_outcome()
     end)
   end
 
@@ -230,14 +230,7 @@ defmodule CodexWrapper.Session do
     metadata = Telemetry.session_turn_metadata(:session_resume, exec_resume, session.session_id)
 
     Telemetry.span([:codex_wrapper, :session, :turn], metadata, fn ->
-      case ExecResume.execute_json(exec_resume, session.config) do
-        {:ok, events} ->
-          result = events_to_result(events)
-          {:ok, result, events}
-
-        {:error, _} = error ->
-          error
-      end
+      exec_resume |> ExecResume.json() |> ExecResume.execute(session.config) |> turn_outcome()
     end)
   end
 
@@ -268,27 +261,52 @@ defmodule CodexWrapper.Session do
     ExecResume.stream(exec_resume, session.config)
   end
 
+  defp turn_outcome({:ok, %Result{exit_code: 0} = result}),
+    do: {:ok, result, JsonLineEvent.parse_lines(result.stdout)}
+
+  defp turn_outcome({:ok, %Result{exit_code: code} = result}),
+    do: {:error, {:exit, code, result}}
+
+  defp turn_outcome({:error, _} = error), do: error
+
+  # A first turn adopts the reported thread. A resumed turn keeps its id when
+  # the turn reports none or the same one. A session resumed by name adopts
+  # the UUID codex reports; one resumed by UUID refuses a different id.
+  defp next_session_id(current, events, result) do
+    case {current, extract_session_id(events)} do
+      {current, nil} -> {:ok, current}
+      {nil, reported} -> {:ok, reported}
+      {same, same} -> {:ok, same}
+      {current, reported} -> resumed_id(current, reported, result)
+    end
+  end
+
+  defp resumed_id(current, reported, result) do
+    if uuid?(current),
+      do: {:error, {:thread_mismatch, current, reported, result}},
+      else: {:ok, reported}
+  end
+
+  defp uuid?(id),
+    do: Regex.match?(~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i, id)
+
   # Public with @doc false so the session-id-capture logic can be covered
   # by regression tests -- see SessionTest `describe "extract_session_id/1"`.
-  # Codex 0.119+ emits the thread identifier as `"thread_id"` in the first
-  # `thread.started` event. Older versions (or other forks) may still use
-  # `"session_id"`, so we check both.
+  # Only a `thread.started` event with a non-blank binary `thread_id` names
+  # the thread (codex 0.119+), the same rule the observed execution path
+  # applies through `SessionObservation.parse/1`.
   @doc false
   @spec extract_session_id([JsonLineEvent.t()]) :: String.t() | nil
   def extract_session_id(events) do
-    Enum.find_value(events, fn event ->
-      JsonLineEvent.get(event, "thread_id") || JsonLineEvent.get(event, "session_id")
+    Enum.find_value(events, fn
+      %JsonLineEvent{event_type: "thread.started"} = event ->
+        thread_id(JsonLineEvent.get(event, "thread_id"))
+
+      _event ->
+        nil
     end)
   end
 
-  defp events_to_result(events) do
-    stdout = Enum.map_join(events, "\n", fn event -> event.raw end)
-
-    %Result{
-      stdout: stdout,
-      stderr: "",
-      exit_code: 0,
-      success: true
-    }
-  end
+  defp thread_id(id) when is_binary(id), do: if(String.trim(id) != "", do: id)
+  defp thread_id(_id), do: nil
 end

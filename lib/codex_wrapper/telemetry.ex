@@ -143,7 +143,8 @@ defmodule CodexWrapper.Telemetry do
     * `:approval_policy` — the configured approval policy when present
 
   Synchronous stop events additionally include `:exit_code` when the
-  wrapped call returns a `%CodexWrapper.Result{}`. Stream events do not
+  wrapped call returns a `%CodexWrapper.Result{}`, including a session
+  turn that fails with `{:error, {:exit, code, result}}`. Stream events do not
   include an exit code because the lazy Runner contract does not expose
   one. Exception metadata follows the standard span shape with `:kind`,
   `:reason`, and `:stacktrace`.
@@ -249,6 +250,10 @@ defmodule CodexWrapper.Telemetry do
   end
 
   defp stop_metadata(start_metadata, {:ok, %Result{exit_code: code}, _extra}) do
+    Map.put(start_metadata, :exit_code, code)
+  end
+
+  defp stop_metadata(start_metadata, {:error, {:exit, code, %Result{}}}) do
     Map.put(start_metadata, :exit_code, code)
   end
 
