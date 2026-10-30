@@ -104,8 +104,12 @@ defmodule CodexWrapper.Exec do
   @doc """
   Select a named config profile.
 
-  Emits `--profile <name>`, which tells the Codex CLI to load the
-  `[profiles.<name>]` section of `config.toml`.
+  Emits `--profile <name>`, which tells the Codex CLI to layer
+  `$CODEX_HOME/<name>.config.toml` on top of the base `config.toml`.
+  A `config.toml` that still has a legacy `[profiles.<name>]` table fails
+  to load. A missing profile file is not an error: the run continues with
+  the base config. With `ignore_user_config/1` the profile file is not
+  read either (codex-cli 0.165.0).
   """
   @spec profile(t(), String.t()) :: t()
   def profile(%__MODULE__{} = e, name), do: %{e | profile: name}
@@ -219,7 +223,14 @@ defmodule CodexWrapper.Exec do
   @spec skip_git_repo_check(t()) :: t()
   def skip_git_repo_check(%__MODULE__{} = e), do: %{e | skip_git_repo_check: true}
 
-  @doc "Add a directory for context."
+  @doc """
+  Make an additional directory writable (`--add-dir`).
+
+  This widens the sandbox: codex may write to `dir` as well as the
+  workspace. To let the agent commit under `workspace-write`, add the
+  directories `git rev-parse --git-dir` and `--git-common-dir` report;
+  see the README section on git commits.
+  """
   @spec add_dir(t(), String.t()) :: t()
   def add_dir(%__MODULE__{} = e, dir), do: %{e | add_dirs: e.add_dirs ++ [dir]}
 

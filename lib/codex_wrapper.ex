@@ -115,7 +115,7 @@ defmodule CodexWrapper do
 
   Exec options (passed to `Exec` builder):
     * `:model` - Model name
-    * `:profile` - Named config profile (`--profile`)
+    * `:profile` - Config profile: layers `$CODEX_HOME/<name>.config.toml` (`--profile`)
     * `:sandbox` - `:read_only`, `:workspace_write`, or `:danger_full_access`
     * `:approval_policy` - Approval policy atom (`:untrusted`, `:on_request`, `:never`)
     * `:full_auto` - Deprecated; emits `--sandbox workspace-write` (boolean)
@@ -129,7 +129,7 @@ defmodule CodexWrapper do
     * `:local_provider` - Local provider name (`"lmstudio"` or `"ollama"`)
     * `:cd` - Working directory for codex subprocess
     * `:skip_git_repo_check` - Skip git check (boolean)
-    * `:add_dir` - Extra writable directory, or a list of them
+    * `:add_dir` - Directory to make writable (`--add-dir`), or a list of them
     * `:search` - Web search: `true` (live), `false`, or a mode atom
       (`:cached`, `:indexed`, `:live`, `:disabled`)
     * `:ephemeral` - Ephemeral mode (boolean)

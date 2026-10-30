@@ -172,7 +172,8 @@ flag from `exec` in 0.14x; the config key is the supported equivalent,
 and `:live` is what `--search` used to mean.
 
 `profile/2` selects a named config profile, emitting `--profile <name>`.
-The CLI loads the matching `[profiles.<name>]` section of `config.toml`:
+The CLI layers `$CODEX_HOME/<name>.config.toml` on top of the base
+`config.toml`:
 
 ```elixir
 Exec.new("Fix the tests")
@@ -185,6 +186,59 @@ It is available on `Exec` only, and as a `:profile` option on
 accepts `--profile` on `codex exec` but rejects it on `codex exec resume`
 and `codex exec review`, so `ExecResume` and `Review` have no `profile/2`,
 and a session's `:profile` applies to its first turn only.
+
+How the CLI resolves a profile (checked on codex-cli 0.149.0, 0.164.0 and
+0.165.0):
+
+- The profile is the file `$CODEX_HOME/<name>.config.toml`, not a
+  `[profiles.<name>]` table. A `config.toml` that still has
+  `[profiles.<name>]` or `profile = "<name>"` fails to load when
+  `--profile <name>` is given, with an error asking to move the settings
+  into `<name>.config.toml`.
+- A missing profile file is not an error: the run continues with the base
+  config. A misspelled profile name therefore drops whatever sandbox or
+  approval settings the file would have carried, without notice.
+- With `ignore_user_config/1` the profile file is not read either (0.165.0),
+  so the run gets codex defaults plus the `-c` overrides.
+
+### Writable directories and git commits
+
+`add_dir/2` emits `--add-dir <dir>`, which makes the directory writable
+alongside the workspace. It widens the sandbox; it is not a read-only
+context hint.
+
+Under the `workspace-write` sandbox the workspace's own git metadata stays
+read-only, so `git add` and `git commit` run by the agent fail with
+`Unable to create '.../index.lock': Operation not permitted`. Measured on
+codex-cli 0.165.0 (`codex sandbox` and app-server `command/exec`, outside
+`/tmp`, which workspace-write leaves writable):
+
+| Workspace | Extra writable roots | Commit |
+|---|---|---|
+| plain checkout | none | fails |
+| plain checkout | `<repo>/.git` | succeeds |
+| linked worktree | none | fails |
+| linked worktree | `git rev-parse --git-dir` only | fails (objects live in the common dir) |
+| linked worktree | `git rev-parse --git-common-dir` only | fails (the worktree index lives in the git dir) |
+| linked worktree | both | succeeds |
+
+To let the agent commit, add the directories git reports:
+
+```bash
+git -C <workspace> rev-parse --path-format=absolute --git-dir
+git -C <workspace> rev-parse --path-format=absolute --git-common-dir
+```
+
+```elixir
+Exec.new("Fix the test and commit")
+|> Exec.sandbox(:workspace_write)
+|> Exec.add_dir(git_dir)
+|> Exec.add_dir(git_common_dir)
+```
+
+Write access to `.git` also lets the sandboxed agent change hooks and
+config that git runs later, outside the sandbox. Committing outside codex
+after reviewing the diff stays the conservative option.
 
 ### Config isolation
 
@@ -938,7 +992,7 @@ streams.
 | Option | Type | Description |
 |---|---|---|
 | `:model` | `String.t()` | Model name (e.g., `"o3"`, `"o4-mini"`) |
-| `:profile` | `String.t()` | Named config profile (`--profile`) |
+| `:profile` | `String.t()` | Config profile: layers `$CODEX_HOME/<name>.config.toml` (`--profile`) |
 | `:sandbox` | atom | `:read_only`, `:workspace_write`, or `:danger_full_access` |
 | `:approval_policy` | atom | `:untrusted`, `:on_request`, or `:never` |
 | `:full_auto` | `boolean()` | Enable full-auto mode |
@@ -956,7 +1010,7 @@ streams.
 | `:color` | atom | `:always`, `:never`, or `:auto` (Exec only) |
 | `:oss` | `boolean()` | Use an open-source provider (Exec only) |
 | `:local_provider` | `String.t()` | `"lmstudio"` or `"ollama"` (Exec only) |
-| `:add_dir` | `String.t()` or list | Extra writable directory (Exec only) |
+| `:add_dir` | `String.t()` or list | Make an extra directory writable (`--add-dir`; Exec only) |
 | `:image` | `String.t()` or list | Image to attach (Exec and resumed turns) |
 | `:config` | `String.t()` or list | `key=value` config override (`-c`) |
 | `:enable` / `:disable` | `String.t()` or list | Feature flag to enable or disable |
