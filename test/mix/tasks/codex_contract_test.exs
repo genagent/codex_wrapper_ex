@@ -53,6 +53,42 @@ defmodule Mix.Tasks.Codex.ContractTest do
     assert File.read!(calls) =~ "exec fork contract-probe-session --strict-config"
   end
 
+  test "help flags no builder emits are reported, minus the allowlist" do
+    {binary, _calls} = fake_cli()
+
+    assert Contract.unbuilt(binary, [{"exec", ["exec", "--model", "m"]}], %{}) == [
+             "exec: --strict-config is in `codex exec --help` but no builder emits it"
+           ]
+
+    assert Contract.unbuilt(binary, [{"exec", ["exec", "--model", "m"]}], %{
+             "exec" => %{"--strict-config" => "reason"}
+           }) == []
+  end
+
+  test "emitted flags from every entry for a subcommand count as built" do
+    {binary, _calls} = fake_cli()
+
+    assert Contract.unbuilt(
+             binary,
+             [{"exec", ["exec", "--model", "m"]}, {"exec", ["exec", "--strict-config"]}],
+             %{}
+           ) == []
+  end
+
+  test "a flag newer than the installed CLI is not drift" do
+    {binary, _calls} = fake_cli()
+    argv = ["exec", "--model", "m", "--worktree"]
+
+    assert [finding] = Contract.check(binary, [{"exec", argv}], version: {0, 165, 0})
+    assert finding =~ "--worktree"
+    assert Contract.check(binary, [{"exec", argv}], version: {0, 149, 0}) == []
+  end
+
+  test "parse_version/1 reads the version from --version output" do
+    assert Contract.parse_version("codex-cli 0.165.0") == {0, 165, 0}
+    assert Contract.parse_version("version unknown: boom") == nil
+  end
+
   defp fake_cli(probe_reply \\ "echo 'unknown variant __codex_wrapper_contract_probe__'; exit 1") do
     dir =
       Path.join(

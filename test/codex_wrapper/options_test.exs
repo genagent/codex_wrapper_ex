@@ -32,7 +32,11 @@ defmodule CodexWrapper.OptionsTest do
     {[image: "/a.png"], ["--image", "/a.png"]},
     {[config: ~s(model="o3")], ["-c", ~s(model="o3")]},
     {[enable: "f1"], ["--enable", "f1"]},
-    {[disable: "f2"], ["--disable", "f2"]}
+    {[disable: "f2"], ["--disable", "f2"]},
+    {[approve_for_me: true], ["--approve-for-me"]},
+    {[worktree: true], ["--worktree"]},
+    {[thread_source: "nightly"], ["--thread-source", "nightly"]},
+    {[cyber_access_program: :daybreak_blue], ["--cyber-access-program", "daybreak_blue"]}
   ]
 
   describe "exec/2" do

@@ -103,10 +103,13 @@ CodexWrapper.Session.turn_count(session)
 Session options are the exec options in the table under
 [Exec options](#exec-options) and apply to every turn. Resumed turns run
 `codex exec resume`, which rejects `--profile`, `--cd`, `--add-dir`,
-`--color`, `--oss` and `--local-provider` and has no `--search`, so
-`:profile`, `:cd`, `:add_dir`, `:color`, `:oss`, `:local_provider` and
-`:search` apply to the first turn only. `:sandbox` and `:approval_policy`
-are emitted on resumed turns as `-c sandbox_mode="..."` and
+`--color`, `--oss` and `--local-provider` and has no `--search`, and
+`ExecResume` has no builder for `--approve-for-me`, `--worktree`,
+`--thread-source` or `--cyber-access-program`, so `:profile`, `:cd`,
+`:add_dir`, `:color`, `:oss`, `:local_provider`, `:search`,
+`:approve_for_me`, `:worktree`, `:thread_source` and
+`:cyber_access_program` apply to the first turn only. `:sandbox` and
+`:approval_policy` are emitted on resumed turns as `-c sandbox_mode="..."` and
 `-c approval_policy="..."`.
 
 ## IEx REPL
@@ -960,6 +963,10 @@ streams.
 | `:image` | `String.t()` or list | Image to attach (Exec and resumed turns) |
 | `:config` | `String.t()` or list | `key=value` config override (`-c`) |
 | `:enable` / `:disable` | `String.t()` or list | Feature flag to enable or disable |
+| `:approve_for_me` | `boolean()` | Route approval requests through automatic review; not with `:sandbox`, `:full_auto` or the bypass flag (Exec only) |
+| `:worktree` | `boolean()` | Run in a new codex-managed git worktree; not with `:ephemeral`; codex-cli 0.157.1+ (Exec only) |
+| `:thread_source` | `String.t()` | Source classification for a new thread; codex-cli 0.157.1+ (Exec only) |
+| `:cyber_access_program` | atom | `:standard`, `:daybreak_blue` or `:daybreak_red`; OpenAI provider only; codex-cli 0.162.0+ (Exec only) |
 
 `CodexWrapper.exec/2`, `exec_json/2`, `stream/2`, `review/1` and
 `CodexWrapper.Session` raise `ArgumentError` on an option not listed for
