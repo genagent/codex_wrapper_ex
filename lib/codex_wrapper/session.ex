@@ -25,7 +25,7 @@ defmodule CodexWrapper.Session do
   """
 
   alias CodexWrapper.Commands.Archive
-  alias CodexWrapper.{Config, Exec, ExecResume, JsonLineEvent, Result, Telemetry}
+  alias CodexWrapper.{Config, Exec, ExecResume, JsonLineEvent, Options, Result, Telemetry}
 
   @type t :: %__MODULE__{
           config: Config.t(),
@@ -46,27 +46,35 @@ defmodule CodexWrapper.Session do
 
   ## Options
 
-  Any option accepted by `CodexWrapper.exec/2` (exec-level options only):
+  Any exec option accepted by `CodexWrapper.exec/2`. The options apply to
+  every turn, with two exceptions:
 
-    * `:model` - Model name
-    * `:profile` - Named config profile (`--profile`); first turn only, since
-      `codex exec resume` does not accept `--profile`
-    * `:sandbox` - Sandbox mode
-    * `:approval_policy` - Approval policy (`:untrusted`, `:on_request`, `:never`)
-    * `:full_auto` - Enable full-auto (boolean)
-    * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
-    * `:skip_git_repo_check` - Skip git check (boolean)
+    * `:profile`, `:cd`, `:add_dir`, `:color`, `:oss`, `:local_provider` and
+      `:search` apply to the first turn only, since `codex exec resume`
+      rejects them. They are skipped on resumed turns, and passing one to
+      `send/3` or `stream/3` on a resumed turn raises `ArgumentError`.
+    * `:sandbox` and `:approval_policy` are emitted on resumed turns as
+      `-c sandbox_mode="..."` and `-c approval_policy="..."`.
+
+  An unknown option, or a value of the wrong type, raises `ArgumentError`.
   """
   @spec new(Config.t(), keyword()) :: t()
   def new(%Config{} = config, opts \\ []) do
+    _ = Options.exec("", opts)
     %__MODULE__{config: config, exec_opts: opts}
   end
 
   @doc """
   Resume an existing session by ID.
+
+  Takes the options `new/2` takes, except the first-turn-only ones
+  (`:profile`, `:cd`, `:add_dir`, `:color`, `:oss`, `:local_provider` and
+  `:search`): every turn of a resumed session runs `codex exec resume`, so
+  they raise `ArgumentError` here.
   """
   @spec resume(Config.t(), String.t(), keyword()) :: t()
   def resume(%Config{} = config, session_id, opts \\ []) do
+    _ = Options.exec_resume(session_id, "", opts)
     %__MODULE__{config: config, session_id: session_id, exec_opts: opts}
   end
 
@@ -234,66 +242,19 @@ defmodule CodexWrapper.Session do
   end
 
   defp build_exec(session, prompt, per_call_opts) do
-    merged_opts = Keyword.merge(session.exec_opts, per_call_opts)
-    exec = Exec.new(prompt)
-
-    Enum.reduce(merged_opts, exec, fn
-      {:model, v}, e ->
-        Exec.model(e, v)
-
-      {:profile, v}, e ->
-        Exec.profile(e, v)
-
-      {:sandbox, v}, e ->
-        Exec.sandbox(e, v)
-
-      {:approval_policy, v}, e ->
-        Exec.approval_policy(e, v)
-
-      {:full_auto, true}, e ->
-        Exec.full_auto(e)
-
-      {:skip_git_repo_check, true}, e ->
-        Exec.skip_git_repo_check(e)
-
-      {:ephemeral, true}, e ->
-        Exec.ephemeral(e)
-
-      {:dangerously_bypass_approvals_and_sandbox, true}, e ->
-        Exec.dangerously_bypass_approvals_and_sandbox(e)
-
-      _other, e ->
-        e
-    end)
+    Options.exec(prompt, Keyword.merge(session.exec_opts, per_call_opts))
   end
 
+  # First-turn-only options set on the session are skipped here; the same
+  # options passed for this call raise in the mapper.
   defp build_exec_resume(session, prompt, per_call_opts) do
-    merged_opts = Keyword.merge(session.exec_opts, per_call_opts)
+    session_opts = Keyword.drop(session.exec_opts, Options.first_turn_only())
 
-    resume =
-      ExecResume.new()
-      |> ExecResume.session_id(session.session_id)
-      |> ExecResume.prompt(prompt)
-
-    Enum.reduce(merged_opts, resume, fn
-      {:model, v}, e ->
-        ExecResume.model(e, v)
-
-      {:full_auto, true}, e ->
-        ExecResume.full_auto(e)
-
-      {:skip_git_repo_check, true}, e ->
-        ExecResume.skip_git_repo_check(e)
-
-      {:ephemeral, true}, e ->
-        ExecResume.ephemeral(e)
-
-      {:dangerously_bypass_approvals_and_sandbox, true}, e ->
-        ExecResume.dangerously_bypass_approvals_and_sandbox(e)
-
-      _other, e ->
-        e
-    end)
+    Options.exec_resume(
+      session.session_id,
+      prompt,
+      Keyword.merge(session_opts, per_call_opts)
+    )
   end
 
   defp build_stream(%__MODULE__{session_id: nil} = session, prompt, per_call_opts) do

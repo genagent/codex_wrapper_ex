@@ -56,7 +56,9 @@ defmodule CodexWrapper.SessionServer do
   ## Options
 
     * `:config` - (required) `%Config{}` struct
-    * `:exec_opts` - Exec options applied to every turn (e.g. `model`, `sandbox`)
+    * `:exec_opts` - Exec options applied to every turn (e.g. `model`, `sandbox`);
+      see `CodexWrapper.Session.new/2`. With `:session_id`, first-turn-only
+      options raise, as in `CodexWrapper.Session.resume/3`
     * `:session_id` - Resume an existing session by ID
     * `:name` - Register the process with a name
 
