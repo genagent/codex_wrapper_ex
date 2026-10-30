@@ -47,9 +47,10 @@ if Code.ensure_loaded?(Forcola) do
     `stream_lines/4` is backed by `Forcola.Stream.lines/2`, so the
     NDJSON paths (`Exec.stream/2` and friends) get the same group kill
     on halt, timeout, or BEAM death. Unlike `Forcola.Stream.lines/2`,
-    it does not raise on a non-zero exit -- it ends the stream, which is
-    what `CodexWrapper.Runner.Port` has always done and what the
-    `CodexWrapper.Runner` contract specifies.
+    it does not raise on a non-zero exit: it ends the stream with an
+    `{:error, {:exit_status, code}}`, `{:error, {:spawn, reason}}` or
+    `{:error, {:signal, signal}}` item, as the `CodexWrapper.Runner`
+    contract specifies.
 
     This module compiles only when `forcola` is a dependency. Select it
     with `config :codex_wrapper, runner: CodexWrapper.Runner.Forcola`
@@ -256,7 +257,8 @@ if Code.ensure_loaded?(Forcola) do
 
     # `Forcola.Stream.lines/2` raises on a non-zero exit, a signal, a
     # timeout, or a spawn failure. The wrapper's streaming contract ends
-    # the stream instead (see `CodexWrapper.Runner`), so translate.
+    # the stream with an error item instead (see `CodexWrapper.Runner`),
+    # so translate.
     # forcola has already killed the process group by the time it raises,
     # so there is nothing left to clean up.
     defp halt_on_error(enum, timeout, idle_timeout_ms) do
@@ -283,9 +285,23 @@ if Code.ensure_loaded?(Forcola) do
         cond do
           error.idle_timed_out -> {[{:error, {:idle_timeout, idle_timeout_ms}}], :done}
           error.timed_out -> {[{:error, {:timeout, timeout}}], :done}
-          true -> {:halt, :done}
+          true -> exit_error(error)
         end
     end
+
+    # A run that never started carries a spawn reason; one that ended badly
+    # carries its exit status or signal. Each ends the stream with one error
+    # item after the lines the process produced.
+    defp exit_error(%Forcola.Stream.Error{reason: reason}) when not is_nil(reason),
+      do: {[{:error, {:spawn, reason}}], :done}
+
+    defp exit_error(%Forcola.Stream.Error{status: code}) when is_integer(code) and code != 0,
+      do: {[{:error, {:exit_status, code}}], :done}
+
+    defp exit_error(%Forcola.Stream.Error{status: {:signal, _} = signal}),
+      do: {[{:error, signal}], :done}
+
+    defp exit_error(_error), do: {:halt, :done}
 
     # Halting the suspended reduction is what kills the process group on an
     # early `Enum.take/2`. It runs forcola's own cleanup, which raises for

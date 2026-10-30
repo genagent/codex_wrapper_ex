@@ -104,12 +104,12 @@ defmodule CodexWrapper.Runner.Port do
     do: {:halt, state}
 
   defp next_line({_port, status, _deadline} = state, _idle_timeout, _timeout)
-       when status in [:failed, :failed_after_exit],
+       when status in [:exited, :failed, :failed_after_exit],
        do: {:halt, state}
 
   # Once the exit status was queued, every earlier output frame is also
   # queued. Drain those frames in order before ending the stream.
-  defp next_line({port, :draining, deadline} = state, _idle_timeout, _timeout) do
+  defp next_line({port, {:draining, code}, deadline} = state, _idle_timeout, _timeout) do
     receive do
       {^port, {:data, {:eol, line}}} when byte_size(line) > @max_line_bytes ->
         {[{:error, {:line_too_long, @max_line_bytes}}], {port, :failed_after_exit, deadline}}
@@ -123,7 +123,7 @@ defmodule CodexWrapper.Runner.Port do
       {^port, {:data, {:noeol, _partial}}} ->
         {[], state}
     after
-      0 -> {:halt, {port, :exited, deadline}}
+      0 -> exited(port, code, deadline)
     end
   end
 
@@ -135,8 +135,8 @@ defmodule CodexWrapper.Runner.Port do
       # already exited. A queued exit means prior output is queued too;
       # drain it before completing rather than dropping the terminal line.
       receive do
-        {^port, {:exit_status, _code}} ->
-          next_line({port, :draining, deadline}, idle_timeout, timeout)
+        {^port, {:exit_status, code}} ->
+          next_line({port, {:draining, code}, deadline}, idle_timeout, timeout)
       after
         0 -> {[{:error, {:timeout, timeout}}], {port, :timed_out, deadline}}
       end
@@ -156,8 +156,8 @@ defmodule CodexWrapper.Runner.Port do
         {^port, {:data, {:noeol, _partial}}} ->
           {[], state}
 
-        {^port, {:exit_status, _code}} ->
-          {:halt, {port, :exited, deadline}}
+        {^port, {:exit_status, code}} ->
+          exited(port, code, deadline)
       after
         wait ->
           reason =
@@ -169,6 +169,14 @@ defmodule CodexWrapper.Runner.Port do
       end
     end
   end
+
+  # Port delivers the exit status after every output frame, so this follows
+  # the last line. A nonzero status ends the stream with an error item; a
+  # missing executable is status 127 from the shell.
+  defp exited(port, 0, deadline), do: {:halt, {port, :exited, deadline}}
+
+  defp exited(port, code, deadline),
+    do: {[{:error, {:exit_status, code}}], {port, :exited, deadline}}
 
   defp min_timeout(nil, nil), do: :infinity
   defp min_timeout(nil, other), do: other
@@ -200,7 +208,7 @@ defmodule CodexWrapper.Runner.Port do
     drain_completed_port(port)
   end
 
-  defp close_port({port, :draining, _deadline}) do
+  defp close_port({port, {:draining, _code}, _deadline}) do
     drain_completed_port(port)
   end
 

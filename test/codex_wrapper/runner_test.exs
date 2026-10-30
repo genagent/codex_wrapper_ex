@@ -71,9 +71,19 @@ defmodule CodexWrapper.RunnerTest do
       assert lines == ["out"]
     end
 
-    test "a non-zero exit ends the stream rather than raising" do
-      assert ["one"] =
+    test "a non-zero exit ends the stream with an exit_status item" do
+      assert ["one", {:error, {:exit_status, 3}}] =
                Port.stream_lines("sh", ["-c", "echo one; exit 3"], [], 5_000) |> Enum.to_list()
+    end
+
+    test "a zero exit ends the stream with no error item" do
+      assert ["one"] = Port.stream_lines("sh", ["-c", "echo one"], [], 5_000) |> Enum.to_list()
+    end
+
+    test "a missing binary ends the stream with exit status 127" do
+      assert [{:error, {:exit_status, 127}}] =
+               Port.stream_lines("definitely-not-a-real-binary-xyz", [], [], 5_000)
+               |> Enum.to_list()
     end
 
     test "runs in :cd, which cmd_opts/1 hands over as a string" do
