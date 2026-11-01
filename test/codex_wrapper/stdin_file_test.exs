@@ -17,6 +17,122 @@ defmodule CodexWrapper.StdinFileTest do
     assert_removed(path)
   end
 
+  test "concurrent callers hold distinct random directory names" do
+    owner = self()
+    ref = make_ref()
+
+    tasks =
+      for number <- 1..24 do
+        Task.async(fn ->
+          prompt = "private prompt #{number}"
+
+          StdinFile.with_file([stdin: prompt], fn path ->
+            assert File.read!(path) == prompt
+            send(owner, {ref, self(), path})
+
+            receive do
+              {^ref, :release} -> path
+            after
+              10_000 -> raise "concurrent prompt test did not release its file"
+            end
+          end)
+        end)
+      end
+
+    try do
+      paths =
+        Enum.map(tasks, fn task ->
+          pid = task.pid
+          assert_receive {^ref, ^pid, path}, 5_000
+          path
+        end)
+
+      assert length(Enum.uniq(paths)) == length(tasks)
+
+      for path <- paths do
+        suffix =
+          path
+          |> Path.dirname()
+          |> Path.basename()
+          |> String.replace_prefix("codex-wrapper-stdin-", "")
+
+        assert {:ok, <<_random::binary-size(16)>>} = Base.url_decode64(suffix, padding: false)
+        assert File.exists?(path)
+      end
+    after
+      Enum.each(tasks, &send(&1.pid, {ref, :release}))
+    end
+
+    Enum.each(tasks, fn task -> task |> Task.await(5_000) |> assert_removed() end)
+  end
+
+  @tag :tmp_dir
+  test "a directory collision retries without changing the existing directory", %{tmp_dir: dir} do
+    occupied = Path.join(dir, "occupied")
+    available = Path.join(dir, "available")
+    File.mkdir!(occupied)
+    marker = Path.join(occupied, "prompt")
+    File.write!(marker, "another caller's prompt")
+    ref = make_ref()
+
+    next_directory = fn ->
+      if File.exists?(Path.join(dir, "attempted")) do
+        send(self(), {ref, available})
+        available
+      else
+        File.touch!(Path.join(dir, "attempted"))
+        send(self(), {ref, occupied})
+        occupied
+      end
+    end
+
+    path =
+      StdinFile.with_file(
+        [stdin: "private"],
+        fn path ->
+          assert File.read!(path) == "private"
+          path
+        end,
+        next_directory
+      )
+
+    assert_receive {^ref, ^occupied}
+    assert_receive {^ref, ^available}
+    refute_received {^ref, _}
+    assert path == Path.join(available, "prompt")
+    assert_removed(path)
+    assert File.read!(marker) == "another caller's prompt"
+  end
+
+  @tag :tmp_dir
+  test "repeated collisions stop after five attempts without running the callback", %{
+    tmp_dir: dir
+  } do
+    occupied = Path.join(dir, "occupied")
+    File.mkdir!(occupied)
+    marker = Path.join(occupied, "prompt")
+    File.write!(marker, "another caller's prompt")
+    ref = make_ref()
+
+    next_directory = fn ->
+      send(self(), {ref, :attempt})
+      occupied
+    end
+
+    assert {:error, {:stdin_file, {:create, 1}}} =
+             StdinFile.with_file(
+               [stdin: "private"],
+               fn _path ->
+                 flunk("a collision must not hand the existing prompt to the callback")
+               end,
+               next_directory
+             )
+
+    for _ <- 1..5, do: assert_receive({^ref, :attempt})
+    refute_received {^ref, :attempt}
+    assert File.read!(marker) == "another caller's prompt"
+  end
+
   test "removes files when launch returns an error or raises" do
     ref = make_ref()
 
@@ -114,8 +230,18 @@ defmodule CodexWrapper.StdinFileTest do
   for runner <- [CodexWrapper.Runner.Port, CodexWrapper.Runner.Forcola] do
     @runner runner
     if runner == CodexWrapper.Runner.Forcola, do: @tag(:forcola)
+    @tag :tmp_dir
 
-    test "#{inspect(runner)} removes input after spawn failure" do
+    test "#{inspect(runner)} removes input after spawn failure", %{tmp_dir: dir} do
+      previous_tmpdir = System.get_env("TMPDIR")
+      System.put_env("TMPDIR", dir)
+
+      on_exit(fn ->
+        if previous_tmpdir,
+          do: System.put_env("TMPDIR", previous_tmpdir),
+          else: System.delete_env("TMPDIR")
+      end)
+
       before = prompt_directories()
 
       directory =

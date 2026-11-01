@@ -28,6 +28,31 @@ defmodule CodexWrapper.Runner.ForcolaPromptLaunchTest do
              Forcola.stream_lines(binary, [], [stdin: "prompt"], 1_000) |> Enum.to_list()
   end
 
+  test "evidenced executable failures retain spawn termination without a child status", context do
+    config =
+      CodexWrapper.Config.new(
+        binary: Path.join(context.tmp_dir, "missing"),
+        runner: Forcola
+      )
+
+    ref = make_ref()
+
+    assert {:error, {:spawn, reason}} =
+             CodexWrapper.Exec.execute(CodexWrapper.Exec.new("prompt"), config,
+               execution_observer: {self(), ref}
+             )
+
+    assert_receive {^ref,
+                    %CodexWrapper.ExecutionObservation{
+                      termination: {:spawn, ^reason},
+                      child_status: nil,
+                      child_signal: nil
+                    }}
+
+    assert {{:error, {:invalid_argument, 1}}, %{termination: :pre_spawn}} =
+             Forcola.run_evidenced("/bin/true", [<<0>>], [stdin: "prompt"], 1_000, {self(), ref})
+  end
+
   test "relative targets and PATH entries resolve against the child working directory", context do
     executable(context, "prompt-reader", "/bin/cat")
 
@@ -80,6 +105,63 @@ defmodule CodexWrapper.Runner.ForcolaPromptLaunchTest do
 
     assert ["prompt"] =
              Forcola.stream_lines("../prompt-reader", [], opts, 1_000) |> Enum.to_list()
+  end
+
+  test "a deleted VM cwd returns typed spawn errors for inherited and relative working directories",
+       context do
+    code = deleted_cwd_probe(context.tmp_dir)
+
+    paths =
+      Mix.Project.build_path()
+      |> Path.join("lib/*/ebin")
+      |> Path.wildcard()
+      |> Enum.flat_map(&["-pa", &1])
+
+    {output, status} =
+      System.cmd(
+        System.find_executable("elixir"),
+        ["--erl", "+S 2:2 +SDcpu 1 +SDio 1"] ++ paths ++ ["-e", code],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+    assert output =~ "deleted cwd checks passed"
+  end
+
+  defp deleted_cwd_probe(directory) do
+    """
+    alias CodexWrapper.Runner.Forcola, as: Runner
+    {:ok, _} = Application.ensure_all_started(:codex_wrapper)
+    original = File.cwd!()
+    directory = #{inspect(directory)}
+    removed = Path.join(directory, "removed")
+    File.mkdir!(removed)
+    File.cd!(removed)
+    File.rmdir!(removed)
+
+    try do
+      {:error, :enoent} = File.cwd()
+      target = {self(), make_ref()}
+
+      for cwd <- [nil, ".", "relative"] do
+        opts = [stdin: "prompt", cd: cwd]
+        {:error, {:spawn, {:cwd, :enoent}}} = Runner.run("/bin/cat", [], opts, 1_000)
+
+        [{:error, {:spawn, {:cwd, :enoent}}}] =
+          Runner.stream_lines("/bin/cat", [], opts, 1_000) |> Enum.to_list()
+
+        {:error, {:spawn, {:cwd, :enoent}}} =
+          Runner.run_observed("/bin/cat", [], opts, 1_000, target)
+
+        {{:error, {:spawn, {:cwd, :enoent}}}, %{termination: {:spawn, {:cwd, :enoent}}}} =
+          Runner.run_evidenced("/bin/cat", [], opts, 1_000, target)
+      end
+
+      IO.puts("deleted cwd checks passed")
+    after
+      File.cd!(original)
+    end
+    """
   end
 
   defp executable(context, name, body) do

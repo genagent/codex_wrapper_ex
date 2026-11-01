@@ -171,6 +171,7 @@ if Code.ensure_loaded?(Forcola) do
         end
 
       case result do
+        {:error, {:spawn, reason}} = error -> {error, %{termination: {:spawn, reason}}}
         {:error, _} = error -> {error, %{termination: :pre_spawn}}
         outcome -> outcome
       end
@@ -189,15 +190,40 @@ if Code.ensure_loaded?(Forcola) do
     # The OS still owns the final check if the executable changes after this one.
     defp prompt_executable(binary, opts) do
       if is_binary(opts[:stdin]) do
-        directory = Path.absname(to_string(opts[:cd] || File.cwd!()))
-        candidates = executable_candidates(binary, opts, directory)
-
-        case Enum.find_value(candidates, &System.find_executable/1) do
-          nil -> {:error, {:spawn, :executable_not_found}}
-          path -> {:ok, path}
+        with {:ok, directory} <- execution_directory(opts[:cd]) do
+          resolve_executable(binary, opts, directory)
         end
       else
         {:ok, binary}
+      end
+    end
+
+    defp resolve_executable(binary, opts, directory) do
+      binary
+      |> executable_candidates(opts, directory)
+      |> Enum.find_value(&System.find_executable/1)
+      |> case do
+        nil -> {:error, {:spawn, :executable_not_found}}
+        path -> {:ok, path}
+      end
+    end
+
+    defp execution_directory(nil), do: current_directory()
+
+    defp execution_directory(directory) do
+      directory = to_string(directory)
+
+      if Path.type(directory) == :absolute do
+        {:ok, directory}
+      else
+        with {:ok, cwd} <- current_directory(), do: {:ok, Path.absname(directory, cwd)}
+      end
+    end
+
+    defp current_directory do
+      case File.cwd() do
+        {:ok, directory} -> {:ok, directory}
+        {:error, reason} -> {:error, {:spawn, {:cwd, reason}}}
       end
     end
 
@@ -226,7 +252,9 @@ if Code.ensure_loaded?(Forcola) do
     end
 
     defp default_executable_path do
-      case System.cmd("/usr/bin/getconf", ["PATH"], stderr_to_stdout: true) do
+      executable = System.find_executable("getconf") || "/usr/bin/getconf"
+
+      case System.cmd(executable, ["PATH"], stderr_to_stdout: true) do
         {path, 0} -> String.trim(path)
         _ -> "/bin:/usr/bin"
       end
@@ -242,19 +270,24 @@ if Code.ensure_loaded?(Forcola) do
 
     # exec retains the process group and signal schedule owned by Forcola.
     # The only prompt reference in argv is its private temporary path.
+    # The temporary EXIT trap maps fatal redirection failures to status 125
+    # without `command exec`, which can hang on macOS's Bash 3.2.
     @stdin_launcher """
     stdin_file=$1
     stdin_directory=$2
     shift 2
-    exec <"$stdin_file" || exit 125
+    trap 'exit 125' 0
+    exec <"$stdin_file"
+    trap - 0
     /bin/rm -f -- "$stdin_file" || exit 125
     /bin/rmdir -- "$stdin_directory" || exit 125
     exec "$@"
     """
 
-    defp launch(binary, args, nil), do: [binary | args]
+    @doc false
+    def launch(binary, args, nil), do: [binary | args]
 
-    defp launch(binary, args, path),
+    def launch(binary, args, path),
       do: [
         "/bin/sh",
         "-c",

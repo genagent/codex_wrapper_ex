@@ -129,12 +129,17 @@ defmodule CodexWrapper.Command do
 
   defp stdin_setup(false), do: ""
 
+  # POSIX exec redirection failures exit the shell immediately. A temporary EXIT
+  # trap supplies the launch-failure status; remove it once the file is open.
+  # `command exec` can hang on macOS's Bash 3.2 even after a successful open.
   defp stdin_setup(true) do
     """
     stdin_file=$1
     stdin_directory=$2
     shift 2
-    exec 4<"$stdin_file" || exit 125
+    trap 'exit 125' 0
+    exec 4<"$stdin_file"
+    trap - 0
     /bin/rm -f -- "$stdin_file" || exit 125
     /bin/rmdir -- "$stdin_directory" || exit 125
     """
