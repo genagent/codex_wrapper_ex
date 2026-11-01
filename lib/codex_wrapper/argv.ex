@@ -5,6 +5,7 @@ defmodule CodexWrapper.Argv do
   # entries. This deliberately rejects inputs very close to the OS ceiling.
   @reserve_bytes 4_096
   @pointer_bytes 8
+  @limits_key {__MODULE__, :limits}
 
   @type size_error :: {:argument_list_too_long, map()}
 
@@ -33,19 +34,40 @@ defmodule CodexWrapper.Argv do
     end
   end
 
-  # Linux's aggregate limit depends on RLIMIT_STACK, so query it at execution
-  # time. Linux also limits every individual argument/environment string to
-  # 32 pages, including its terminating NUL. macOS has no separate string cap.
+  # Resource limits are assumed fixed for this VM's lifetime. Cache discovery
+  # so validating the target and its launcher does not spawn repeated getconf
+  # processes. Linux also limits each argument/environment string to 32 pages,
+  # including its terminating NUL. macOS has no separate string cap.
   @doc false
   def limits do
+    case :persistent_term.get(@limits_key, nil) do
+      nil ->
+        executable = System.find_executable("getconf") || "/usr/bin/getconf"
+        limits = discover_limits(:os.type(), executable)
+        :persistent_term.put(@limits_key, limits)
+        limits
+
+      limits ->
+        limits
+    end
+  end
+
+  @doc false
+  def discover_limits(platform, executable) do
     string =
-      case :os.type() do
-        {:unix, :linux} -> 32 * getconf("PAGESIZE", 4_096)
+      case platform do
+        {:unix, :linux} -> 32 * getconf(executable, "PAGESIZE", 4_096)
         _ -> nil
       end
 
-    %{total: getconf("ARG_MAX", 32_768), string: string}
+    %{total: getconf(executable, "ARG_MAX", default_total(platform)), string: string}
   end
+
+  # Linux's usual 8 MiB stack gives ARG_MAX = RLIMIT_STACK / 4. Darwin's
+  # default is 1 MiB. Unknown platforms retain the existing conservative bound.
+  defp default_total({:unix, :linux}), do: 2_097_152
+  defp default_total({:unix, :darwin}), do: 1_048_576
+  defp default_total(_platform), do: 32_768
 
   defp environment(opts) do
     base = if opts[:env_mode] == :replace, do: %{}, else: System.get_env()
@@ -81,8 +103,8 @@ defmodule CodexWrapper.Argv do
   defp too_long(kind, bytes, limit),
     do: {:error, {:argument_list_too_long, %{kind: kind, bytes: bytes, limit: limit}}}
 
-  defp getconf(name, fallback) do
-    case System.cmd("/usr/bin/getconf", [name], stderr_to_stdout: true) do
+  defp getconf(executable, name, fallback) do
+    case System.cmd(executable, [name], stderr_to_stdout: true) do
       {output, 0} ->
         case Integer.parse(String.trim(output)) do
           {value, ""} when value > 0 -> value

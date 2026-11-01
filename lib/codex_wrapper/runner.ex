@@ -54,9 +54,10 @@ defmodule CodexWrapper.Runner do
   Built-in runners reject oversized argument lists before spawning with
   `{:error, {:argument_list_too_long, details}}`. The check includes the
   effective environment, launcher overhead and Linux per-string limits.
-  It reserves 4 KiB below `getconf ARG_MAX`, with a conservative 32 KiB
-  fallback when the platform limit cannot be read. Error details contain
-  sizes, never argument contents.
+  Limits are cached for the VM's lifetime. The check reserves 4 KiB below
+  `getconf ARG_MAX`, with a 2 MiB Linux or 1 MiB macOS fallback when discovery
+  fails (32 KiB on other platforms). Error details contain sizes, never
+  argument contents.
   """
 
   @typedoc "Runner error reasons. `:timeout` is common to every runner."

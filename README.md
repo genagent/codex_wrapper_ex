@@ -106,8 +106,10 @@ The built-in runners reject oversized argument lists or environment strings
 before starting codex, returning `{:error, {:argument_list_too_long, details}}`.
 Streams emit `%CodexWrapper.StreamError{}` with that reason. The size check
 includes inherited environment, launcher overhead and Linux per-string
-limits. It reserves 4 KiB below the reported aggregate limit, and uses a
-conservative 32 KiB limit if `getconf` is unavailable. Argv mode still exposes
+limits. Limits are cached for the VM's lifetime. The check reserves 4 KiB below
+the aggregate limit reported by `getconf`, discovered through `PATH` with
+`/usr/bin/getconf` as a fallback. If discovery fails, the aggregate defaults are
+2 MiB on Linux and 1 MiB on macOS (32 KiB on other platforms). Argv mode still exposes
 prompt text in the process table and is subject to these limits.
 
 Custom runners receive prompt bytes as `opts[:stdin]`; they must deliver all
