@@ -61,6 +61,7 @@ defmodule CodexWrapperEx.MixProject do
         "Config, results, support": [
           CodexWrapper.Config,
           CodexWrapper.Result,
+          CodexWrapper.LastMessage,
           CodexWrapper.SessionObservation,
           CodexWrapper.ObservedExecution,
           CodexWrapper.JsonLineEvent,

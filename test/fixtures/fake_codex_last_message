@@ -1,0 +1,19 @@
+#!/bin/sh
+previous=''
+for arg in "$@"; do
+  if [ "$previous" = '--output-last-message' ] || [ "$previous" = '-o' ]; then
+    path="$arg"
+  fi
+  previous="$arg"
+done
+printf '%s\n' "$path" > "$FAKE_CODEX_CALLS"
+case "$FAKE_CODEX_SCENARIO" in
+  missing|failed_missing) rm -f "$path" ;;
+  empty|failed_empty) : > "$path" ;;
+  *) printf 'final message\n' > "$path" ;;
+esac
+printf 'stdout noise\n'
+printf 'stderr noise\n' >&2
+case "$FAKE_CODEX_SCENARIO" in
+  failed*) exit 2 ;;
+esac
