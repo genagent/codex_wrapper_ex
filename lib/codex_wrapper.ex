@@ -92,8 +92,10 @@ defmodule CodexWrapper do
   Execute a prompt non-interactively and return the result.
 
   Convenience wrapper that builds a `Config` and `Exec` from keyword options.
-  Returns `{:ok, %Result{}}` when codex ran, or `{:error, reason}` when it
-  could not be run or timed out.
+  Returns `{:ok, %Result{}}` when codex ran, including a nonzero exit:
+  `{:ok, %Result{success: false, exit_code: code}}`. Returns `{:error, reason}`
+  when it could not be run or timed out. For `--json` output, use
+  `CodexWrapper.Turn.from_result/1` to inspect the turn outcome.
 
   ## Options
 
@@ -202,8 +204,10 @@ defmodule CodexWrapper do
   Run a code review via `codex exec review`.
 
   Convenience wrapper that builds a `Config` and `Review` from keyword options.
-  Returns `{:ok, %Result{}}` when codex ran, or `{:error, reason}` when it
-  could not be run or timed out.
+  Returns `{:ok, %Result{}}` when codex ran, including a nonzero exit:
+  `{:ok, %Result{success: false, exit_code: code}}`. Returns `{:error, reason}`
+  when it could not be run or timed out. For `--json` output, use
+  `CodexWrapper.Turn.from_result/1` to inspect the turn outcome.
 
   ## Options
 

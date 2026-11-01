@@ -38,7 +38,9 @@ defmodule CodexWrapper.Structured do
   ## Outcomes
 
   Success is `{:ok, value, detail}` where `detail` is
-  `%{result: Result.t(), events: [JsonLineEvent.t()], text: String.t()}`.
+  `%{result: Result.t(), events: [JsonLineEvent.t()], turn: Turn.t(), text: String.t()}`.
+  The `turn` is the shared `CodexWrapper.Turn` projection, including native
+  outcome, thread identity and token usage.
 
   Failures after the process ran carry the same `detail` map (plus the
   fields noted) so the native output is never lost:
@@ -64,13 +66,14 @@ defmodule CodexWrapper.Structured do
   `{:unsupported, capability}` are returned unchanged.
   """
 
-  alias CodexWrapper.{Config, Exec, ExecFork, ExecResume, JsonLineEvent, Result, Review}
+  alias CodexWrapper.{Config, Exec, ExecFork, ExecResume, JsonLineEvent, Result, Review, Turn}
 
   @type command :: Exec.t() | ExecResume.t() | ExecFork.t() | Review.t()
 
   @type detail :: %{
           required(:result) => Result.t(),
           required(:events) => [JsonLineEvent.t()],
+          required(:turn) => Turn.t(),
           optional(atom()) => term()
         }
 
@@ -130,11 +133,11 @@ defmodule CodexWrapper.Structured do
   """
   @spec decode(Result.t(), keyword()) :: {:ok, term(), detail()} | {:error, error()}
   def decode(%Result{} = result, opts \\ []) do
-    events = JsonLineEvent.parse_lines(result.stdout)
-    detail = %{result: result, events: events}
+    turn = Turn.from_result(result)
+    detail = %{result: result, events: turn.events, turn: turn}
 
-    with :ok <- check_turn(events, result, detail),
-         {:ok, text} <- final_message(events, detail),
+    with :ok <- check_turn(turn, detail),
+         {:ok, text} <- final_message(turn, detail),
          detail = Map.put(detail, :text, text),
          {:ok, value} <- decode_json(text, detail),
          {:ok, parsed} <- parse(Keyword.get(opts, :parse), value, detail) do
@@ -175,61 +178,21 @@ defmodule CodexWrapper.Structured do
     end
   end
 
-  defp check_turn(events, result, detail) do
-    case terminal(events) do
-      %JsonLineEvent{event_type: "turn.failed", data: data} ->
-        {:error, {:turn_failed, Map.put(detail, :error, data["error"])}}
+  defp check_turn(%Turn{status: :completed}, _detail), do: :ok
 
-      %JsonLineEvent{event_type: "turn.completed"} when result.exit_code != 0 ->
-        {:error, {:process_failed, detail}}
+  defp check_turn(%Turn{status: :no_terminal}, detail),
+    do: {:error, {:no_terminal, detail}}
 
-      %JsonLineEvent{event_type: "turn.completed"} ->
-        :ok
-
-      nil ->
-        no_terminal(events, result, detail)
-    end
+  defp check_turn(%Turn{} = turn, detail) do
+    if turn.error != nil or match?(%JsonLineEvent{event_type: "turn.failed"}, turn.terminal_event),
+      do: {:error, {:turn_failed, Map.put(detail, :error, turn.error)}},
+      else: {:error, {:process_failed, detail}}
   end
 
-  defp no_terminal(events, result, detail) do
-    case Enum.filter(events, &(&1.event_type == "error")) do
-      [] when result.exit_code != 0 -> {:error, {:process_failed, detail}}
-      [] -> {:error, {:no_terminal, detail}}
-      errors -> {:error, {:turn_failed, Map.put(detail, :error, List.last(errors).data)}}
-    end
-  end
+  defp final_message(%Turn{final_message: text}, _detail) when is_binary(text) and text != "",
+    do: {:ok, text}
 
-  defp terminal(events) do
-    events
-    |> Enum.filter(&(&1.event_type in ["turn.completed", "turn.failed"]))
-    |> List.last()
-  end
-
-  defp final_message(events, detail) do
-    events
-    |> final_turn()
-    |> Enum.filter(&agent_message?/1)
-    |> List.last()
-    |> case do
-      %JsonLineEvent{data: %{"item" => %{"text" => text}}} when is_binary(text) and text != "" ->
-        {:ok, text}
-
-      _ ->
-        {:error, {:no_structured_output, detail}}
-    end
-  end
-
-  defp final_turn(events) do
-    case Enum.find_index(Enum.reverse(events), &(&1.event_type == "turn.started")) do
-      nil -> events
-      index -> Enum.take(events, -index)
-    end
-  end
-
-  defp agent_message?(%JsonLineEvent{event_type: "item.completed", data: data}),
-    do: match?(%{"item" => %{"type" => "agent_message"}}, data)
-
-  defp agent_message?(_event), do: false
+  defp final_message(_turn, detail), do: {:error, {:no_structured_output, detail}}
 
   defp decode_json(text, detail) do
     case Jason.decode(text) do

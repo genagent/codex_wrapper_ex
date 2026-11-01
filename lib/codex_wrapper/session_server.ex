@@ -37,7 +37,7 @@ defmodule CodexWrapper.SessionServer do
 
   use GenServer
 
-  alias CodexWrapper.{Config, Result, Session}
+  alias CodexWrapper.{Config, Result, Session, Turn}
 
   @type server :: GenServer.server()
 
@@ -81,6 +81,9 @@ defmodule CodexWrapper.SessionServer do
   returns: `{:error, {:exit, code, result}}` for a nonzero exit and
   `{:error, {:thread_mismatch, expected, reported, result}}` for a
   different thread ID. A failed turn leaves the session unchanged.
+
+  Use `last_turn/1` to inspect the typed JSON turn outcome and `total_usage/1`
+  to get reported usage totals after a successful call.
   """
   @spec send_message(server(), String.t(), keyword()) ::
           {:ok, Result.t()} | {:error, term()}
@@ -113,6 +116,24 @@ defmodule CodexWrapper.SessionServer do
   @spec total_cost(server()) :: float() | nil
   def total_cost(server) do
     GenServer.call(server, :total_cost)
+  end
+
+  @doc """
+  Sum reported token usage across recorded turns.
+
+  See `CodexWrapper.Session.total_usage/1` for missing-value semantics.
+  """
+  @spec total_usage(server()) :: Turn.usage() | nil
+  def total_usage(server) do
+    GenServer.call(server, :total_usage)
+  end
+
+  @doc """
+  Get the typed projection of the last recorded turn, if any.
+  """
+  @spec last_turn(server()) :: Turn.t() | nil
+  def last_turn(server) do
+    GenServer.call(server, :last_turn)
   end
 
   @doc """
@@ -171,6 +192,14 @@ defmodule CodexWrapper.SessionServer do
 
   def handle_call(:total_cost, _from, session) do
     {:reply, Session.total_cost(session), session}
+  end
+
+  def handle_call(:total_usage, _from, session) do
+    {:reply, Session.total_usage(session), session}
+  end
+
+  def handle_call(:last_turn, _from, session) do
+    {:reply, Session.last_turn(session), session}
   end
 
   def handle_call(:last_result, _from, session) do

@@ -8,7 +8,8 @@ defmodule CodexWrapper.EvidencedExecutionTest do
     ExecResume,
     ExecutionObservation,
     Result,
-    SessionObservation
+    SessionObservation,
+    Turn
   }
 
   defmodule Fake do
@@ -75,6 +76,52 @@ defmodule CodexWrapper.EvidencedExecutionTest do
 
     defp scenario("nonzero", stdout, _timeout, _collector, _ref) do
       response(stdout, 7)
+    end
+
+    # Synthetic native event sequences for projection and bounded-output tests.
+    defp scenario("completed-then-error", stdout, _timeout, _collector, _ref) do
+      completed = %{
+        "type" => "turn.completed",
+        "usage" => %{
+          "input_tokens" => 12,
+          "cached_input_tokens" => 3,
+          "cache_write_input_tokens" => 2,
+          "output_tokens" => 7,
+          "reasoning_output_tokens" => 1,
+          "future_tokens" => 9
+        }
+      }
+
+      response(
+        stdout <>
+          ~s({"type":"turn.failed","error":{"message":"earlier failure"}}\n) <>
+          ~s({"type":"error","message":"reconnecting"}\n) <>
+          Jason.encode!(completed) <>
+          "\n" <>
+          ~s({"type":"error","message":"late failure"}\n),
+        0
+      )
+    end
+
+    defp scenario("last-failed", stdout, _timeout, _collector, _ref) do
+      response(stdout <> ~s({"type":"turn.failed","error":{"message":"last failure"}}\n), 0)
+    end
+
+    defp scenario("replacement-no-terminal", _stdout, _timeout, _collector, _ref) do
+      response(~s({"type":"turn.started"}\n), 0)
+    end
+
+    defp scenario("replacement-empty", _stdout, _timeout, _collector, _ref) do
+      response("", 0)
+    end
+
+    defp scenario("oversized-terminal", stdout, _timeout, _collector, _ref) do
+      failed = %{
+        "type" => "turn.failed",
+        "error" => %{"message" => String.duplicate("x", SessionObservation.max_line_bytes())}
+      }
+
+      response(stdout <> Jason.encode!(failed) <> "\n", 0)
     end
 
     defp scenario("worker-death", _stdout, _timeout, _collector, _ref) do
@@ -243,6 +290,72 @@ defmodule CodexWrapper.EvidencedExecutionTest do
 
       refute_receive {^ref, _}, 10
     end
+  end
+
+  test "raw parsed results share the projection's terminal selection" do
+    for mode <- ["completed-then-error", "last-failed"] do
+      ref = make_ref()
+      assert {:ok, %Result{} = result} = execute(mode, ref)
+      assert_receive {:invoked, _, _, _, _, _, _, _}
+      assert_receive {^ref, %SessionObservation{}}
+      assert_receive {^ref, %ExecutionObservation{} = fact}
+
+      turn = Turn.from_result(result)
+      assert turn.status == :failed
+      assert fact.parsed_result == turn.terminal_event.data
+      assert fact.stdout == result.stdout
+      assert fact.child_status == 0
+
+      if mode == "completed-then-error" do
+        assert fact.parsed_result["type"] == "turn.completed"
+        assert fact.parsed_result["usage"]["future_tokens"] == 9
+        assert turn.usage.reasoning_output_tokens == 1
+      else
+        assert fact.parsed_result["type"] == "turn.failed"
+      end
+    end
+  end
+
+  test "final evidence replaces a previously streamed terminal event" do
+    for mode <- ["replacement-no-terminal", "replacement-empty"] do
+      ref = make_ref()
+      assert {:ok, %Result{} = result} = execute(mode, ref)
+      assert_receive {:invoked, _, _, _, _, _, _, _}
+      assert_receive {^ref, %SessionObservation{}}
+      assert_receive {^ref, %ExecutionObservation{parsed_result: nil} = fact}
+      assert fact.stdout == result.stdout
+      assert Turn.from_result(result).terminal_event == nil
+    end
+  end
+
+  test "truncated final events cannot replace the last complete bounded event" do
+    first = ~s({"type":"thread.started","thread_id":"native-thread"}\n)
+    completed = ~s({"type":"turn.completed","usage":{}}\n)
+    limit = byte_size(first <> first <> completed) + 12
+    ref = make_ref()
+
+    assert {:ok, %Result{} = result} = execute("last-failed", ref, max_output_bytes: limit)
+    assert_receive {:invoked, _, _, _, _, _, _, _}
+    assert_receive {^ref, %SessionObservation{}}
+    assert_receive {^ref, %ExecutionObservation{output_truncated: true} = fact}
+    assert byte_size(fact.stdout) + byte_size(fact.stderr) == limit
+    assert fact.parsed_result == Turn.from_result(result).terminal_event.data
+    assert fact.parsed_result["type"] == "turn.completed"
+  end
+
+  test "terminal projection preserves the evidenced line-size limit" do
+    ref = make_ref()
+    limit = SessionObservation.max_line_bytes() * 2
+
+    assert {:ok, %Result{}} = execute("oversized-terminal", ref, max_output_bytes: limit)
+    assert_receive {:invoked, _, _, _, _, _, _, _}
+    assert_receive {^ref, %SessionObservation{}}
+
+    assert_receive {^ref,
+                    %ExecutionObservation{
+                      parsed_result: %{"type" => "turn.completed"},
+                      output_truncated: :unknown
+                    }}
   end
 
   test "partial combined output stays bounded on limit and worker death" do

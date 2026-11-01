@@ -142,7 +142,27 @@ session = CodexWrapper.Session.new(config, model: "o3")
 
 CodexWrapper.Session.turn_count(session)
 #=> 2
+
+turn = CodexWrapper.Session.last_turn(session)
+# Also available as session.last_turn
+turn.status
+#=> :completed
+turn.final_message
+#=> "Added tests for lib/foo.ex"
+
+CodexWrapper.Session.total_usage(session)
+#=> %{input_tokens: 120, cached_input_tokens: 100, cache_write_input_tokens: nil,
+#     output_tokens: 7, reasoning_output_tokens: nil}
 ```
+
+`send/3` keeps its raw `%Result{}` return value and result history. The updated
+session exposes the typed JSON turn as `session.last_turn` or
+`Session.last_turn/1`. `SessionServer.last_turn/1` and
+`SessionServer.total_usage/1` provide the same access through a session server.
+Usage totals sum reported nonnegative integers from recorded turns. A field
+is `nil` if it was never reported; the whole total is `nil` if no recorded
+turn included usage. Nonzero exits leave the session unchanged and do not
+contribute to usage totals.
 
 Session options are the exec options in the table under
 [Exec options](#exec-options) and apply to every turn. Resumed turns run
@@ -152,6 +172,38 @@ Session options are the exec options in the table under
 `:search` apply to the first turn only. `:sandbox` and `:approval_policy`
 are emitted on resumed turns as `-c sandbox_mode="..."` and
 `-c approval_policy="..."`.
+
+## Typed turn results
+
+`CodexWrapper.Turn.from_result/1` projects an existing `--json` result without
+starting a process. `%Result{}` continues to hold the raw stdout, stderr and
+exit code.
+
+```elixir
+config = CodexWrapper.Config.new()
+exec = CodexWrapper.Exec.new("Summarize the changes") |> CodexWrapper.Exec.json()
+{:ok, result} = CodexWrapper.Exec.execute(exec, config)
+turn = CodexWrapper.Turn.from_result(result)
+
+turn.status        # :completed, :failed or :no_terminal
+turn.final_message # last completed agent message from the last turn, or nil
+turn.thread_id     # thread.started identity, or nil
+turn.usage         # five token counters, or nil
+turn.error         # native error data, or nil
+turn.events        # parsed events, including unrecognized fields
+```
+
+The last `turn.completed` or `turn.failed` sets the native turn outcome. A
+top-level `error` fails the turn if no terminal event follows it. A nonzero
+process exit makes the projection `:failed`, including after a completion
+event. `CodexWrapper.exec/2` and `CodexWrapper.review/1` still return
+`{:ok, %Result{success: false}}` for a nonzero exit; runner errors return
+`{:error, reason}`.
+
+Usage has the keys `:input_tokens`, `:cached_input_tokens`,
+`:cache_write_input_tokens`, `:output_tokens` and `:reasoning_output_tokens`.
+Only nonnegative integers are retained; missing or invalid counters are
+`nil`. Original values and any extra fields remain in `turn.events`.
 
 ## IEx REPL
 

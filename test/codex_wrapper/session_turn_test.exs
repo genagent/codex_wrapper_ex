@@ -2,7 +2,7 @@ defmodule CodexWrapper.SessionTurnTest do
   # Not async: attaches a global telemetry handler.
   use ExUnit.Case, async: false
 
-  alias CodexWrapper.{Config, Result, Session, SessionServer}
+  alias CodexWrapper.{Config, Result, Session, SessionServer, Turn}
 
   @moduletag :tmp_dir
 
@@ -97,6 +97,86 @@ defmodule CodexWrapper.SessionTurnTest do
       assert stdout =~ "a warning"
       assert Session.session_id(session) == @uuid
       assert Session.turn_count(session) == 1
+    end
+
+    test "exposes typed turns and sums usage over repeated sends", %{tmp_dir: dir} do
+      first_lines = [
+        started(@uuid),
+        ~s({"type":"turn.started"}),
+        ~s({"type":"item.completed","item":{"type":"agent_message","text":"first"}}),
+        ~s({"type":"turn.completed","usage":{"input_tokens":12,"cached_input_tokens":0,"output_tokens":3}})
+      ]
+
+      config = fake(dir, first_lines, nil, 0)
+      assert {:ok, first, %Result{} = first_result} = Session.send(Session.new(config), "first")
+
+      assert %Turn{status: :completed, final_message: "first", thread_id: @uuid} =
+               Session.last_turn(first)
+
+      assert first.last_turn == Turn.from_result(first_result)
+      assert Session.history(first) == [first_result]
+
+      second_lines = [
+        started(@uuid),
+        ~s({"type":"turn.started"}),
+        ~s({"type":"item.completed","item":{"type":"agent_message","text":"second"}}),
+        ~s({"type":"turn.completed","usage":{"input_tokens":5,"cache_write_input_tokens":2,"output_tokens":4,"reasoning_output_tokens":1}})
+      ]
+
+      fake(dir, second_lines, nil, 0)
+      assert {:ok, second, %Result{} = second_result} = Session.send(first, "second")
+
+      assert Session.last_turn(second).final_message == "second"
+      assert Session.last_result(second) == second_result
+      assert Session.history(second) == [first_result, second_result]
+
+      assert Session.total_usage(second) == %{
+               input_tokens: 17,
+               cached_input_tokens: 0,
+               cache_write_input_tokens: 2,
+               output_tokens: 7,
+               reasoning_output_tokens: 1
+             }
+    end
+
+    test "exposes a failed native outcome despite a zero process exit", %{tmp_dir: dir} do
+      lines = [
+        started(@uuid),
+        ~s({"type":"turn.failed","error":{"message":"synthetic failure"}})
+      ]
+
+      config = fake(dir, lines, nil, 0)
+
+      assert {:ok, session, %Result{success: true}} = Session.send(Session.new(config), "first")
+
+      assert %Turn{status: :failed, error: %{"message" => "synthetic failure"}} =
+               session.last_turn
+
+      assert Session.total_usage(session) == nil
+    end
+  end
+
+  describe "typed session server access" do
+    test "reports usage and preserves the previous turn when a later call fails", %{tmp_dir: dir} do
+      lines = [
+        started(@uuid),
+        ~s({"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":0}})
+      ]
+
+      config = fake(dir, lines, nil, 0)
+      {:ok, pid} = SessionServer.start_link(config: config)
+      assert {:ok, %Result{} = result} = SessionServer.send_message(pid, "first")
+      turn = Turn.from_result(result)
+      assert SessionServer.last_turn(pid) == turn
+      assert SessionServer.total_usage(pid) == turn.usage
+      assert SessionServer.last_result(pid) == result
+
+      fake(dir, lines, "synthetic failure", 7)
+      assert {:error, {:exit, 7, %Result{}}} = SessionServer.send_message(pid, "second")
+      assert SessionServer.last_turn(pid) == turn
+      assert SessionServer.total_usage(pid) == turn.usage
+      assert SessionServer.history(pid) == [result]
+      assert SessionServer.turn_count(pid) == 1
     end
   end
 

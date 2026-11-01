@@ -4,8 +4,10 @@ defmodule CodexWrapper.ExecutionObservation do
 
   Sent as `{reference, observation}` by the execution caller before returning.
   A preceding `SessionObservation` establishes identity only. `:outcome` is the
-  legacy execution result before JSON/fork convenience projections; `:parsed_result` is the last bounded native
-  `turn.completed` or `turn.failed` JSON object, independent of process outcome.
+  legacy execution result before JSON/fork convenience projections.
+  `:parsed_result` is the last bounded native `turn.completed` or `turn.failed`
+  JSON object, selected through `CodexWrapper.Turn` independently of process
+  outcome. It retains the native field names and values, including usage.
 
   `:child_status` and `:child_signal` are raw native reports, never inferred
   from JSON, transport closure, or a pre-spawn failure. `:termination` records
