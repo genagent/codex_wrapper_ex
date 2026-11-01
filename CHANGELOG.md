@@ -4,7 +4,12 @@
 
 ### Breaking Changes
 
+* Child processes now scrub inherited release boot variables and release PATH entries when `RELEASE_ROOT` is set. Set `release_env: :inherit` to opt out. Explicit `Config.env` values apply after the scrub, with release entries still removed from an explicit PATH.
 * Prompt commands now pass `-` in argv and deliver prompt bytes through stdin by default. Custom runners must deliver `opts[:stdin]` and EOF, or callers must select `prompt_input: :argv`.
+
+### Features
+
+* Add `CodexWrapper.ChildEnv.release_scrub/1` and `normalize/3` for building child environments from a supplied parent environment.
 
 ### Bug Fixes
 

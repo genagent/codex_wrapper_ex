@@ -60,6 +60,7 @@ defmodule CodexWrapperEx.MixProject do
         ],
         "Config, results, support": [
           CodexWrapper.Config,
+          CodexWrapper.ChildEnv,
           CodexWrapper.Result,
           CodexWrapper.Turn,
           CodexWrapper.LastMessage,

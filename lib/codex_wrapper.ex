@@ -105,6 +105,7 @@ defmodule CodexWrapper do
     * `:binary` - Path to codex binary
     * `:working_dir` - Working directory
     * `:env` - Environment variables
+    * `:release_env` - Release boot environment policy: `:scrub` (default) or `:inherit`
     * `:timeout` - Timeout in ms
     * `:idle_timeout_ms` - Maximum gap between streaming output frames in ms
     * `:verbose` - Compatibility option: only `false` is supported; `true` raises
@@ -217,6 +218,7 @@ defmodule CodexWrapper do
     * `:binary` - Path to codex binary
     * `:working_dir` - Working directory
     * `:env` - Environment variables
+    * `:release_env` - Release boot environment policy: `:scrub` (default) or `:inherit`
     * `:timeout` - Timeout in ms
     * `:idle_timeout_ms` - Maximum gap between streaming output frames in ms
     * `:verbose` - Compatibility option: only `false` is supported; `true` raises
@@ -277,6 +279,7 @@ defmodule CodexWrapper do
     :binary,
     :working_dir,
     :env,
+    :release_env,
     :timeout,
     :idle_timeout_ms,
     :verbose
