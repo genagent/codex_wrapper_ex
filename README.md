@@ -290,6 +290,23 @@ events, missing or invalid messages and parser failures are distinct tagged
 errors that keep the result and events. `Structured.decode/2` decodes a
 `%Result{}` from a run that used an explicit schema path.
 
+## Final message from plain-text runs
+
+`CodexWrapper.LastMessage.run/3` reads the final agent message independently
+of merged stdout and stderr, keeping the original process result:
+
+```elixir
+{:ok, text, result} =
+  CodexWrapper.Exec.new("Summarize the diff in one paragraph")
+  |> CodexWrapper.LastMessage.run(CodexWrapper.Config.new())
+```
+
+Works with `Exec`, `ExecResume`, `ExecFork` and `Review`. The wrapper creates
+a private temporary file and removes it after execution, including failures
+and raises. An explicit `output_last_message/2` path remains the caller's.
+Missing or empty output on exit zero returns `{:error, {:no_last_message, result}}`;
+a non-zero exit returns `{:error, {:process_failed, text, result}}`.
+
 ## Session resumption
 
 Resume a previous session:
