@@ -1,6 +1,15 @@
 defmodule CodexWrapper.EvidencedExecution do
   @moduledoc false
-  alias CodexWrapper.{Command, Config, ExecutionObservation, Result, Runner, SessionObservation}
+  alias CodexWrapper.{
+    Command,
+    Config,
+    ExecutionObservation,
+    JsonLineEvent,
+    Result,
+    Runner,
+    SessionObservation,
+    Turn
+  }
 
   @default_output 1_048_576
   @default_timeout 300_000
@@ -138,7 +147,6 @@ defmodule CodexWrapper.EvidencedExecution do
           session: session,
           buffer: "",
           dropping?: false,
-          parsed: nil,
           stdout: "",
           stderr: "",
           bytes: 0,
@@ -298,13 +306,7 @@ defmodule CodexWrapper.EvidencedExecution do
           %{state | session: nil}
       end
 
-    parsed =
-      case Jason.decode(state.buffer) do
-        {:ok, %{"type" => type} = value} when type in ["turn.completed", "turn.failed"] -> value
-        _ -> state.parsed
-      end
-
-    %{state | buffer: "", parsed: parsed}
+    %{state | buffer: ""}
   end
 
   defp finish(state, {:returned, {outcome, evidence}}, execution) when is_map(evidence) do
@@ -348,7 +350,7 @@ defmodule CodexWrapper.EvidencedExecution do
           outcome: outcome,
           stdout: streams.stdout,
           stderr: streams.stderr,
-          parsed_result: streams.parsed
+          parsed_result: parsed_result(streams.stdout)
         })
       )
 
@@ -366,7 +368,7 @@ defmodule CodexWrapper.EvidencedExecution do
       outcome: {:error, {kind, reason}},
       stdout: state.stdout,
       stderr: state.stderr,
-      parsed_result: state.parsed,
+      parsed_result: parsed_result(state.stdout),
       termination: {:runner_exception, kind}
     })
 
@@ -386,12 +388,19 @@ defmodule CodexWrapper.EvidencedExecution do
   defp parsed_result(stdout) do
     stdout
     |> :binary.split("\n", [:global])
-    |> Enum.reduce(nil, fn line, result ->
-      case Jason.decode(line) do
-        {:ok, %{"type" => type} = value} when type in ["turn.completed", "turn.failed"] -> value
-        _ -> result
+    |> Enum.filter(&(byte_size(&1) <= SessionObservation.max_line_bytes()))
+    |> Enum.flat_map(fn line ->
+      case JsonLineEvent.parse(line) do
+        {:ok, event} -> [event]
+        {:error, _} -> []
       end
     end)
+    |> Turn.from_events()
+    |> Map.fetch!(:terminal_event)
+    |> case do
+      %JsonLineEvent{data: data} -> data
+      nil -> nil
+    end
   end
 
   defp bounded_result({:ok, {_stdout, code, _stderr}}, streams),

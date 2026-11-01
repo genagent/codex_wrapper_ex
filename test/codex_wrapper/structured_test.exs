@@ -1,7 +1,7 @@
 defmodule CodexWrapper.StructuredTest do
   use ExUnit.Case, async: true
 
-  alias CodexWrapper.{Config, Exec, ExecResume, JsonLineEvent, Result, Review, Structured}
+  alias CodexWrapper.{Config, Exec, ExecResume, JsonLineEvent, Result, Review, Structured, Turn}
 
   @fake Path.expand("../fixtures/fake_codex_structured", __DIR__)
 
@@ -167,6 +167,60 @@ defmodule CodexWrapper.StructuredTest do
   end
 
   describe "decode/2" do
+    test "shares the typed projection on success and every native failure" do
+      message = %{
+        "type" => "item.completed",
+        "item" => %{"type" => "agent_message", "text" => ~s({"name":"Ada"})}
+      }
+
+      completed = %{"type" => "turn.completed", "usage" => %{"input_tokens" => 12}}
+      failed = %{"type" => "turn.failed"}
+      error = %{"type" => "error", "message" => "late failure"}
+
+      for {events, code, expected} <- [
+            {[message, completed], 0, :ok},
+            {[message, completed], 1, :process_failed},
+            {[message, error, completed], 0, :ok},
+            {[message, completed, error], 0, :turn_failed},
+            {[message, completed, error], 1, :turn_failed},
+            {[message, failed, completed], 0, :ok},
+            {[message, completed, failed], 0, :turn_failed},
+            {[message, failed], 0, :turn_failed},
+            {[message], 0, :no_terminal},
+            {[message], 1, :process_failed}
+          ] do
+        result = Result.from_cmd({Enum.map_join(events, "\n", &Jason.encode!/1), code})
+
+        detail =
+          case Structured.decode(result) do
+            {:ok, %{"name" => "Ada"}, detail} ->
+              assert expected == :ok
+              detail
+
+            {:error, {kind, detail}} ->
+              assert kind == expected
+              detail
+          end
+
+        assert detail.turn == Turn.from_result(result)
+        assert detail.events == detail.turn.events
+        assert detail.result == result
+      end
+    end
+
+    test "does not decode a previous turn's message when the final turn has none" do
+      stdout = """
+      {"type":"turn.started"}
+      {"type":"item.completed","item":{"type":"agent_message","text":"{}"}}
+      {"type":"turn.completed"}
+      {"type":"turn.started"}
+      {"type":"turn.completed"}
+      """
+
+      assert {:error, {:no_structured_output, %{turn: %Turn{final_message: nil}}}} =
+               Structured.decode(Result.from_cmd({stdout, 0}))
+    end
+
     test "decodes a result the caller already holds" do
       stdout =
         Enum.map_join(

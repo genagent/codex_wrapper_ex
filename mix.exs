@@ -62,6 +62,7 @@ defmodule CodexWrapperEx.MixProject do
           CodexWrapper.Config,
           CodexWrapper.ChildEnv,
           CodexWrapper.Result,
+          CodexWrapper.Turn,
           CodexWrapper.LastMessage,
           CodexWrapper.SessionObservation,
           CodexWrapper.ObservedExecution,

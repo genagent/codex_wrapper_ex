@@ -1,7 +1,7 @@
 defmodule CodexWrapper.SessionTest do
   use ExUnit.Case, async: true
 
-  alias CodexWrapper.{Config, JsonLineEvent, Session}
+  alias CodexWrapper.{Config, JsonLineEvent, Result, Session}
 
   defp event(type, data), do: %JsonLineEvent{event_type: type, data: data, raw: ""}
 
@@ -12,6 +12,7 @@ defmodule CodexWrapper.SessionTest do
       assert session.config == config
       assert session.session_id == nil
       assert session.history == []
+      assert session.last_turn == nil
       assert session.exec_opts == []
     end
 
@@ -78,6 +79,58 @@ defmodule CodexWrapper.SessionTest do
       config = Config.new()
       session = Session.new(config)
       assert Session.last_result(session) == nil
+    end
+  end
+
+  describe "last_turn/1" do
+    test "returns nil before a turn is recorded" do
+      assert Session.last_turn(Session.new(Config.new())) == nil
+    end
+  end
+
+  describe "total_usage/1" do
+    test "returns nil when there is no reported usage" do
+      session = Session.new(Config.new())
+      assert Session.total_usage(session) == nil
+
+      result = Result.from_cmd({~s({"type":"turn.completed"}), 0})
+      assert Session.total_usage(%{session | history: [result]}) == nil
+    end
+
+    test "sums known counters while preserving unknown values and zero" do
+      usages = [
+        %{"input_tokens" => 12, "cached_input_tokens" => 0, "output_tokens" => 3},
+        %{"input_tokens" => 5, "cache_write_input_tokens" => 2, "output_tokens" => -1},
+        %{"input_tokens" => "9", "cached_input_tokens" => nil, "output_tokens" => 1.5}
+      ]
+
+      results =
+        Enum.map(usages, fn usage ->
+          Result.from_cmd({Jason.encode!(%{"type" => "turn.completed", "usage" => usage}), 0})
+        end)
+
+      session = %{Session.new(Config.new()) | history: results}
+
+      assert Session.total_usage(session) == %{
+               input_tokens: 17,
+               cached_input_tokens: 0,
+               cache_write_input_tokens: 2,
+               output_tokens: 3,
+               reasoning_output_tokens: nil
+             }
+    end
+
+    test "a reported empty usage map retains unknown counters" do
+      result = Result.from_cmd({~s({"type":"turn.completed","usage":{}}), 0})
+      session = %{Session.new(Config.new()) | history: [result]}
+
+      assert Session.total_usage(session) == %{
+               input_tokens: nil,
+               cached_input_tokens: nil,
+               cache_write_input_tokens: nil,
+               output_tokens: nil,
+               reasoning_output_tokens: nil
+             }
     end
   end
 

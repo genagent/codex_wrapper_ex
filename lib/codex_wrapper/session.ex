@@ -20,23 +20,30 @@ defmodule CodexWrapper.Session do
       CodexWrapper.Session.turns(session)
       #=> [%Result{...}, %Result{...}]
 
+      # Inspect the typed turn and cumulative token usage
+      CodexWrapper.Session.last_turn(session)
+      #=> %CodexWrapper.Turn{status: :completed, ...}
+      CodexWrapper.Session.total_usage(session)
+
       # Resume a previous session
       session = CodexWrapper.Session.resume(config, "session-id-abc")
   """
 
   alias CodexWrapper.Commands.Archive
-  alias CodexWrapper.{Config, Exec, ExecResume, JsonLineEvent, Options, Result, Telemetry}
+  alias CodexWrapper.{Config, Exec, ExecResume, JsonLineEvent, Options, Result, Telemetry, Turn}
 
   @type t :: %__MODULE__{
           config: Config.t(),
           session_id: String.t() | nil,
           history: [Result.t()],
+          last_turn: Turn.t() | nil,
           exec_opts: keyword()
         }
 
   defstruct [
     :config,
     :session_id,
+    :last_turn,
     history: [],
     exec_opts: []
   ]
@@ -90,6 +97,11 @@ defmodule CodexWrapper.Session do
   Internally uses `--json` and takes the session ID from the turn's
   `thread.started` event.
 
+  The updated session exposes the typed projection as `session.last_turn`
+  and through `last_turn/1`. The returned result and history remain raw
+  `%Result{}` values. Inspect the projection's `status` for the JSON turn
+  outcome, which may be `:failed` even when codex exited 0.
+
   Returns:
 
     * `{:ok, session, result}` when codex exited 0. `result` carries the
@@ -108,9 +120,15 @@ defmodule CodexWrapper.Session do
              | {:thread_mismatch, String.t(), String.t(), Result.t()}
              | term()}
   def send(%__MODULE__{} = session, prompt, opts \\ []) do
-    with {:ok, result, events} <- execute_turn(session, prompt, opts),
-         {:ok, session_id} <- next_session_id(session.session_id, events, result) do
-      updated = %{session | session_id: session_id, history: session.history ++ [result]}
+    with {:ok, result, turn} <- execute_turn(session, prompt, opts),
+         {:ok, session_id} <- next_session_id(session.session_id, turn.thread_id, result) do
+      updated = %{
+        session
+        | session_id: session_id,
+          history: session.history ++ [result],
+          last_turn: turn
+      }
+
       {:ok, updated, result}
     end
   end
@@ -169,6 +187,34 @@ defmodule CodexWrapper.Session do
   """
   @spec total_cost(t()) :: float() | nil
   def total_cost(%__MODULE__{}), do: nil
+
+  @doc """
+  Sum the reported token usage across recorded turns.
+
+  Returns `nil` when no turn reported a usage map. Otherwise returns the
+  five usage fields from `CodexWrapper.Turn`, summing only reported
+  nonnegative integers. A field is `nil` when no turn reported a valid
+  value for it; an explicitly reported zero remains zero. Missing values
+  are not estimates, so a total may cover fewer turns than the history.
+
+  Turns rejected by `send/3`, including nonzero exits, are not recorded
+  and do not contribute to these totals.
+  """
+  @spec total_usage(t()) :: Turn.usage() | nil
+  def total_usage(%__MODULE__{history: history}) do
+    Enum.reduce(history, nil, fn result, total ->
+      result |> Turn.from_result() |> Map.fetch!(:usage) |> sum_usage(total)
+    end)
+  end
+
+  @doc """
+  Get the typed projection of the last recorded turn, if any.
+
+  Failed calls to `send/3` leave this projection unchanged, along with the
+  rest of the session. The raw result remains available via `last_result/1`.
+  """
+  @spec last_turn(t()) :: Turn.t() | nil
+  def last_turn(%__MODULE__{last_turn: turn}), do: turn
 
   @doc """
   Get the last result, if any.
@@ -267,7 +313,7 @@ defmodule CodexWrapper.Session do
   end
 
   defp turn_outcome({:ok, %Result{exit_code: 0} = result}),
-    do: {:ok, result, JsonLineEvent.parse_lines(result.stdout)}
+    do: {:ok, result, Turn.from_result(result)}
 
   defp turn_outcome({:ok, %Result{exit_code: code} = result}),
     do: {:error, {:exit, code, result}}
@@ -277,8 +323,8 @@ defmodule CodexWrapper.Session do
   # A first turn adopts the reported thread. A resumed turn keeps its id when
   # the turn reports none or the same one. A session resumed by name adopts
   # the UUID codex reports; one resumed by UUID refuses a different id.
-  defp next_session_id(current, events, result) do
-    case {current, extract_session_id(events)} do
+  defp next_session_id(current, reported, result) do
+    case {current, reported} do
       {current, nil} -> {:ok, current}
       {nil, reported} -> {:ok, reported}
       {same, same} -> {:ok, same}
@@ -302,16 +348,16 @@ defmodule CodexWrapper.Session do
   # applies through `SessionObservation.parse/1`.
   @doc false
   @spec extract_session_id([JsonLineEvent.t()]) :: String.t() | nil
-  def extract_session_id(events) do
-    Enum.find_value(events, fn
-      %JsonLineEvent{event_type: "thread.started"} = event ->
-        thread_id(JsonLineEvent.get(event, "thread_id"))
+  def extract_session_id(events), do: Turn.from_events(events).thread_id
 
-      _event ->
-        nil
+  defp sum_usage(nil, total), do: total
+  defp sum_usage(usage, nil), do: usage
+
+  defp sum_usage(usage, total) do
+    Map.merge(total, usage, fn
+      _key, nil, value -> value
+      _key, value, nil -> value
+      _key, previous, value -> previous + value
     end)
   end
-
-  defp thread_id(id) when is_binary(id), do: if(String.trim(id) != "", do: id)
-  defp thread_id(_id), do: nil
 end
