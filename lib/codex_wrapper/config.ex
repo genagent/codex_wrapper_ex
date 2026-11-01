@@ -15,6 +15,7 @@ defmodule CodexWrapper.Config do
           binary: String.t(),
           working_dir: String.t() | nil,
           env: [{String.t(), String.t() | false}],
+          release_env: :scrub | :inherit,
           timeout: pos_integer() | nil,
           idle_timeout_ms: pos_integer() | nil,
           verbose: boolean(),
@@ -34,6 +35,7 @@ defmodule CodexWrapper.Config do
     :runner_options,
     :runner_default_timeout_ms,
     env: [],
+    release_env: :scrub,
     verbose: false
   ]
 
@@ -50,6 +52,10 @@ defmodule CodexWrapper.Config do
       `false` removes an inherited variable, on every runner path. Names must
       be nonempty and contain no `=`; names and values must contain no NUL.
       Invalid entries raise `ArgumentError`. `nil` is stored as `false`.
+    * `:release_env` - `:scrub` (default) removes inherited release boot variables
+      and release PATH entries when `RELEASE_ROOT` is set. `:env` entries apply
+      afterward, but explicit PATH values are also scrubbed. Use `:inherit` to
+      opt out. See `CodexWrapper.ChildEnv`.
     * `:timeout` - Whole-command timeout in milliseconds
     * `:idle_timeout_ms` - Maximum gap between output frames while streaming
       or using evidenced one-shot execution
@@ -81,6 +87,7 @@ defmodule CodexWrapper.Config do
       binary: opts[:binary] || find_binary(),
       working_dir: opts[:working_dir],
       env: validate_env!(opts[:env] || []),
+      release_env: validate_release_env!(Keyword.get(opts, :release_env, :scrub)),
       timeout: opts[:timeout],
       idle_timeout_ms: Keyword.get(opts, :idle_timeout_ms, 300_000),
       verbose: verbose,
@@ -226,20 +233,41 @@ defmodule CodexWrapper.Config do
           "verbose: true is unsupported: the Codex CLI does not define --verbose"
   end
 
+  defp validate_release_env!(mode) when mode in [:scrub, :inherit], do: mode
+
+  defp validate_release_env!(mode),
+    do: raise(ArgumentError, "release_env must be :scrub or :inherit, got: #{inspect(mode)}")
+
   @doc """
-  Build the cmd options (working dir, env) for `System.cmd`.
+  Build subprocess options using the current parent environment.
+
+  Release scrubbing happens here, when preparing a spawn, rather than when
+  constructing the config. The parent environment is never modified.
   """
   @spec cmd_opts(t()) :: keyword()
   def cmd_opts(%__MODULE__{} = config) do
+    cmd_opts(config, System.get_env())
+  end
+
+  defp cmd_opts(config, parent) do
+    mode = validate_release_env!(config.release_env)
+    env = CodexWrapper.ChildEnv.normalize(config.env, parent, mode)
     opts = [stderr_to_stdout: true]
     opts = if config.working_dir, do: [{:cd, config.working_dir} | opts], else: opts
-    opts = if config.env != [], do: [{:env, config.env} | opts], else: opts
+    opts = if env != [], do: [{:env, env} | opts], else: opts
     opts
   end
 
   @doc false
   @spec execution_opts(t()) :: keyword()
-  def execution_opts(config), do: Keyword.merge(cmd_opts(config), runner_options(config))
+  def execution_opts(config) do
+    runner_opts = runner_options(config)
+    parent = System.get_env()
+    # A replacement environment must not acquire an inherited PATH merely
+    # because the host is a release. Keep the roots to scrub explicit PATHs.
+    parent = if runner_opts[:env_mode] == :replace, do: Map.delete(parent, "PATH"), else: parent
+    Keyword.merge(cmd_opts(config, parent), runner_opts)
+  end
 
   @doc """
   Build the runner options for a streaming run.

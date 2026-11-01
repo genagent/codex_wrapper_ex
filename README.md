@@ -728,6 +728,7 @@ Exception metadata adds the standard `:kind`, `:reason`, and
 | `:binary` | `String.t()` | Path to `codex` binary (auto-discovered if omitted) |
 | `:working_dir` | `String.t()` | Working directory for the subprocess |
 | `:env` | `[{String.t(), String.t() \| nil \| false}]` | Environment variables for the child; `nil` or `false` removes an inherited variable |
+| `:release_env` | `:scrub \| :inherit` | Scrub the host release's boot environment by default when `RELEASE_ROOT` is set; use `:inherit` to opt out |
 | `:timeout` | `pos_integer()` | Whole-command timeout in milliseconds; defaults to no whole-run bound for Port streams |
 | `:idle_timeout_ms` | `pos_integer() \| nil` | Maximum gap between output frames in a stream; defaults to 300,000 ms, or set `nil` to disable |
 | `:runner` | module or shorthand | Per-config runner; snapshots application default when absent |
@@ -746,6 +747,41 @@ a value that is not a string, `nil` or `false`.
 one-shot calls replace the child environment with the computed one
 (`env_mode: :replace`). `Forcola.Stream` does not take `env_mode`, so a
 Forcola stream runs `/usr/bin/env -u NAME ...` in front of `codex`.
+
+### Running from a release
+
+By default, when the parent VM has `RELEASE_ROOT` set, each child process
+starts without inherited `RELEASE_*`, `BINDIR`, or `ROOTDIR` variables. The
+wrapper also removes complete PATH entries equal to the parent's `BINDIR`,
+`ROOTDIR/bin`, `RELEASE_ROOT/bin`, or either root's direct `erts-<version>/bin`.
+Other PATH entries retain their order, including duplicates and empty entries.
+This lets commands such as `mix` and `elixir` find the project's runtime instead
+of booting against the host release. The project's runtime must be available on
+the remaining PATH.
+
+The default applies to execute and stream calls on both runners, sessions,
+command modules, and `raw/2`. The parent environment is read when preparing
+the spawn and is never modified. Outside a release, nothing is scrubbed.
+
+`Config.env` entries apply after the scrub, so an explicit value can restore
+a removed name. An explicit PATH still has the parent's release entries
+removed; `{"PATH", nil}` or `{"PATH", false}` keeps PATH unset. With
+`runner_options: [env_mode: :replace]`, no inherited PATH is added.
+
+```elixir
+# Default behavior inside a release
+config = CodexWrapper.Config.new(release_env: :scrub)
+
+# Opt out for a command that deliberately needs the host release environment
+config = CodexWrapper.Config.new(release_env: :inherit)
+CodexWrapper.exec("inspect the release", release_env: :inherit)
+
+# Obtain unset tuples and a cleaned PATH for a custom environment builder
+scrub = CodexWrapper.ChildEnv.release_scrub(System.get_env())
+```
+
+Removing `RELEASE_COOKIE` reduces accidental propagation. It does not prevent
+a child running as the same OS user from reading the release's cookie file.
 
 ### Observing native thread identity before completion
 
