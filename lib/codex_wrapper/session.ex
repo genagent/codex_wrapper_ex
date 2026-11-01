@@ -37,6 +37,7 @@ defmodule CodexWrapper.Session do
           session_id: String.t() | nil,
           history: [Result.t()],
           last_turn: Turn.t() | nil,
+          usage_total: Turn.usage() | nil,
           exec_opts: keyword()
         }
 
@@ -44,6 +45,7 @@ defmodule CodexWrapper.Session do
     :config,
     :session_id,
     :last_turn,
+    :usage_total,
     history: [],
     exec_opts: []
   ]
@@ -101,6 +103,8 @@ defmodule CodexWrapper.Session do
   and through `last_turn/1`. The returned result and history remain raw
   `%Result{}` values. Inspect the projection's `status` for the JSON turn
   outcome, which may be `:failed` even when codex exited 0.
+  Each recorded turn also updates the running token totals returned by
+  `total_usage/1`, using the same projection.
 
   Returns:
 
@@ -126,7 +130,8 @@ defmodule CodexWrapper.Session do
         session
         | session_id: session_id,
           history: session.history ++ [result],
-          last_turn: turn
+          last_turn: turn,
+          usage_total: sum_usage(turn.usage, session.usage_total)
       }
 
       {:ok, updated, result}
@@ -189,7 +194,12 @@ defmodule CodexWrapper.Session do
   def total_cost(%__MODULE__{}), do: nil
 
   @doc """
-  Sum the reported token usage across recorded turns.
+  Get the reported token usage accumulated by `send/3`.
+
+  Reads the running totals in constant time without parsing raw result
+  history. `send/3` updates the totals when it records a turn; the raw
+  `%Result{}` history remains unchanged. A new or resumed session has no
+  totals until a recorded turn reports usage.
 
   Returns `nil` when no turn reported a usage map. Otherwise returns the
   five usage fields from `CodexWrapper.Turn`, summing only reported
@@ -201,11 +211,7 @@ defmodule CodexWrapper.Session do
   and do not contribute to these totals.
   """
   @spec total_usage(t()) :: Turn.usage() | nil
-  def total_usage(%__MODULE__{history: history}) do
-    Enum.reduce(history, nil, fn result, total ->
-      result |> Turn.from_result() |> Map.fetch!(:usage) |> sum_usage(total)
-    end)
-  end
+  def total_usage(%__MODULE__{usage_total: total}), do: total
 
   @doc """
   Get the typed projection of the last recorded turn, if any.

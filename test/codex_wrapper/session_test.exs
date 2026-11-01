@@ -3,7 +3,27 @@ defmodule CodexWrapper.SessionTest do
 
   alias CodexWrapper.{Config, JsonLineEvent, Result, Session}
 
+  # Synthetic NDJSON supplied as the prompt makes each test's turn output
+  # explicit while exercising the normal Session.send/3 recording path.
+  defmodule UsageRunner do
+    @behaviour CodexWrapper.Runner
+
+    @impl true
+    def run(_binary, _args, opts, _timeout), do: {:ok, {Keyword.fetch!(opts, :stdin), 0}}
+  end
+
   defp event(type, data), do: %JsonLineEvent{event_type: type, data: data, raw: ""}
+
+  defp usage_session do
+    Session.new(Config.new(binary: "synthetic-codex", runner: UsageRunner))
+  end
+
+  defp record_usage(session, usage) do
+    event = %{"type" => "turn.completed"}
+    event = if usage == :missing, do: event, else: Map.put(event, "usage", usage)
+    {:ok, session, _result} = Session.send(session, Jason.encode!(event))
+    session
+  end
 
   describe "new/2" do
     test "creates session with config" do
@@ -13,6 +33,7 @@ defmodule CodexWrapper.SessionTest do
       assert session.session_id == nil
       assert session.history == []
       assert session.last_turn == nil
+      assert session.usage_total == nil
       assert session.exec_opts == []
     end
 
@@ -34,6 +55,7 @@ defmodule CodexWrapper.SessionTest do
       config = Config.new()
       session = Session.resume(config, "abc-123")
       assert Session.session_id(session) == "abc-123"
+      assert Session.total_usage(session) == nil
     end
 
     test "with exec opts" do
@@ -90,26 +112,25 @@ defmodule CodexWrapper.SessionTest do
 
   describe "total_usage/1" do
     test "returns nil when there is no reported usage" do
-      session = Session.new(Config.new())
+      session = usage_session()
       assert Session.total_usage(session) == nil
 
-      result = Result.from_cmd({~s({"type":"turn.completed"}), 0})
-      assert Session.total_usage(%{session | history: [result]}) == nil
+      session = record_usage(session, :missing)
+      assert Session.turn_count(session) == 1
+      assert Session.total_usage(session) == nil
     end
 
     test "sums known counters while preserving unknown values and zero" do
       usages = [
         %{"input_tokens" => 12, "cached_input_tokens" => 0, "output_tokens" => 3},
+        :missing,
         %{"input_tokens" => 5, "cache_write_input_tokens" => 2, "output_tokens" => -1},
-        %{"input_tokens" => "9", "cached_input_tokens" => nil, "output_tokens" => 1.5}
+        %{"input_tokens" => "9", "cached_input_tokens" => nil, "output_tokens" => 1.5},
+        %{"reasoning_output_tokens" => false}
       ]
 
-      results =
-        Enum.map(usages, fn usage ->
-          Result.from_cmd({Jason.encode!(%{"type" => "turn.completed", "usage" => usage}), 0})
-        end)
-
-      session = %{Session.new(Config.new()) | history: results}
+      session = Enum.reduce(usages, usage_session(), &record_usage(&2, &1))
+      assert Session.turn_count(session) == length(usages)
 
       assert Session.total_usage(session) == %{
                input_tokens: 17,
@@ -121,8 +142,7 @@ defmodule CodexWrapper.SessionTest do
     end
 
     test "a reported empty usage map retains unknown counters" do
-      result = Result.from_cmd({~s({"type":"turn.completed","usage":{}}), 0})
-      session = %{Session.new(Config.new()) | history: [result]}
+      session = record_usage(usage_session(), %{})
 
       assert Session.total_usage(session) == %{
                input_tokens: nil,
@@ -131,6 +151,37 @@ defmodule CodexWrapper.SessionTest do
                output_tokens: nil,
                reasoning_output_tokens: nil
              }
+    end
+
+    test "repeated reads use recorded totals independently of raw stdout history" do
+      session =
+        usage_session()
+        |> record_usage(%{"input_tokens" => 12, "output_tokens" => 0})
+        |> record_usage(%{"input_tokens" => 5})
+
+      expected = Session.total_usage(session)
+      assert expected.input_tokens == 17
+      assert expected.output_tokens == 0
+
+      # A consumer may redact retained raw output after recording a turn.
+      # Replaying these Results would lose the recorded usage entirely.
+      history =
+        Enum.map(session.history, fn %Result{} = result -> %{result | stdout: "redacted"} end)
+
+      session = %{session | history: history}
+
+      for _ <- 1..3, do: assert(Session.total_usage(session) == expected)
+      assert Session.history(session) == history
+
+      session = record_usage(session, %{"input_tokens" => 1, "cache_write_input_tokens" => 0})
+
+      assert Session.total_usage(session) == %{
+               expected
+               | input_tokens: 18,
+                 cache_write_input_tokens: 0
+             }
+
+      assert Enum.take(Session.history(session), 2) == history
     end
   end
 

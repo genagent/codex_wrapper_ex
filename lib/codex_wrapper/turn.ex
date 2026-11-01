@@ -1,6 +1,6 @@
 defmodule CodexWrapper.Turn do
   @moduledoc """
-  A pure projection of a command's `--json` output.
+  A pure projection of a command's `--json` output, which can contain several turns.
 
   `from_result/1` starts no process and leaves the raw `CodexWrapper.Result`
   unchanged. Ordinary text messages do not need to contain JSON:
@@ -9,23 +9,36 @@ defmodule CodexWrapper.Turn do
       turn = CodexWrapper.Turn.from_result(result)
       turn.final_message
 
-  The last `turn.completed` or `turn.failed` determines the native outcome.
-  A top-level `error` fails the turn until a later terminal event supersedes
-  it. A nonzero process exit always makes `status` `:failed`, including after
-  `turn.completed`. Without a terminal event or error, status is `:no_terminal`
-  when the process exited zero or its exit code is unknown.
+  ## Field scopes
 
-  `final_message` is the last completed `agent_message` text after the last
-  `turn.started`. `thread_id` is the first nonblank string ID announced by
-  `thread.started`. Usage comes from the last terminal event of the last
-  turn. Only the five documented token fields are projected, each as a
-  nonnegative integer or `nil`; missing usage is `nil`, not zero.
+  `status`, `error`, and `terminal_event` summarize the **entire event stream**.
+  The last `turn.completed` or `turn.failed` determines the native outcome;
+  a top-level `error` fails it until a later terminal event supersedes that
+  error. A new `turn.started` does not clear these three fields. Therefore
+  `:completed` means the stream's last reported terminal outcome completed,
+  not that its last started turn necessarily finished. `:no_terminal` means
+  no terminal event or error was reported anywhere in the stream, provided
+  the process did not exit nonzero.
 
-  `error` retains native error data, or is `nil` when no native error was
-  reported. A process failure alone does not fabricate an error object.
-  `events` keeps all parsed events, including unknown fields and invalid
-  usage values. `terminal_event` retains the last native terminal event,
-  independently of process exit and subsequent top-level errors.
+  `exit_code` describes the whole process. A nonzero exit always makes
+  `status` `:failed`, including after `turn.completed`. `error` retains native
+  error data or `nil`; process failure alone does not fabricate an error
+  object. `terminal_event` remains the last native terminal event regardless
+  of process exit or subsequent top-level errors. `thread_id` is the first
+  nonblank string ID announced by `thread.started` anywhere in the stream.
+  `events` keeps every parsed event, including unknown fields and invalid
+  usage values.
+
+  `final_message` and `usage` describe only the **last started turn**. Both
+  reset to `nil` at each `turn.started`. The message is its last completed
+  `agent_message` text, and usage comes from its last terminal event. If no
+  `turn.started` appears, these fields use the whole stream. Only the five
+  documented token fields are projected, each as a nonnegative integer or
+  `nil`; missing usage is `nil`, not zero.
+
+  For example, `turn.started`, `turn.completed`, `turn.started` produces
+  `status: :completed` and retains the earlier `terminal_event`, while
+  `final_message` and `usage` are `nil`. The new turn has no reported outcome.
   """
 
   alias CodexWrapper.{JsonLineEvent, Result}
