@@ -12,10 +12,23 @@ defmodule CodexWrapper.Options do
   @approval_policies [:untrusted, :on_request, :never]
   @search_modes [:cached, :indexed, :live, :disabled]
   @color_modes [:always, :never, :auto]
+  @cyber_access_programs [:standard, :daybreak_blue, :daybreak_red]
 
   # Options `codex exec` accepts and `codex exec resume` rejects after the
   # subcommand. A session applies them on its first turn only.
-  @first_turn_only [:profile, :cd, :add_dir, :color, :oss, :local_provider, :search]
+  @first_turn_only [
+    :profile,
+    :cd,
+    :add_dir,
+    :color,
+    :oss,
+    :local_provider,
+    :search,
+    :approve_for_me,
+    :worktree,
+    :thread_source,
+    :cyber_access_program
+  ]
 
   @doc false
   @spec first_turn_only() :: [atom()]
@@ -91,6 +104,15 @@ defmodule CodexWrapper.Options do
 
   defp exec_opt({:output_last_message, v}, e),
     do: Exec.output_last_message(e, string!(:output_last_message, v))
+
+  defp exec_opt({:approve_for_me, v}, e), do: flag(e, :approve_for_me, v, &Exec.approve_for_me/1)
+  defp exec_opt({:worktree, v}, e), do: flag(e, :worktree, v, &Exec.worktree/1)
+
+  defp exec_opt({:thread_source, v}, e),
+    do: Exec.thread_source(e, string!(:thread_source, v))
+
+  defp exec_opt({:cyber_access_program, v}, e),
+    do: Exec.cyber_access_program(e, member!(:cyber_access_program, v, @cyber_access_programs))
 
   defp exec_opt({:image, v}, e), do: each(e, :image, v, &Exec.image/2)
   defp exec_opt({:config, v}, e), do: each(e, :config, v, &Exec.config/2)

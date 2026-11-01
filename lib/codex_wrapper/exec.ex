@@ -26,6 +26,7 @@ defmodule CodexWrapper.Exec do
   @type approval_policy :: :untrusted | :on_request | :never
   @type web_search_mode :: :cached | :indexed | :live | :disabled
   @type color_mode :: :always | :never | :auto
+  @type cyber_access_program :: :standard | :daybreak_blue | :daybreak_red
 
   @type t :: %__MODULE__{
           prompt: String.t(),
@@ -53,7 +54,11 @@ defmodule CodexWrapper.Exec do
           ignore_rules: boolean(),
           color: color_mode() | nil,
           oss: boolean(),
-          local_provider: String.t() | nil
+          local_provider: String.t() | nil,
+          approve_for_me: boolean(),
+          worktree: boolean(),
+          thread_source: String.t() | nil,
+          cyber_access_program: cyber_access_program() | nil
         }
 
   defstruct [
@@ -68,6 +73,10 @@ defmodule CodexWrapper.Exec do
     :search,
     :color,
     :local_provider,
+    :thread_source,
+    :cyber_access_program,
+    approve_for_me: false,
+    worktree: false,
     full_auto: false,
     dangerously_bypass_approvals_and_sandbox: false,
     dangerously_bypass_hook_trust: false,
@@ -210,6 +219,48 @@ defmodule CodexWrapper.Exec do
   """
   @spec local_provider(t(), String.t()) :: t()
   def local_provider(%__MODULE__{} = e, provider), do: %{e | local_provider: provider}
+
+  @doc """
+  Route approval requests through automatic review (`--approve-for-me`).
+
+  Codex reviews each approval request itself, using the workspace-write
+  sandbox. The CLI rejects it together with a sandbox (`sandbox/2` or
+  `full_auto/1`) or with `dangerously_bypass_approvals_and_sandbox/1`;
+  building such a command raises `ArgumentError`. Present in codex-cli
+  0.149.0 and later.
+  """
+  @spec approve_for_me(t()) :: t()
+  def approve_for_me(%__MODULE__{} = e), do: %{e | approve_for_me: true}
+
+  @doc """
+  Run the session in a new codex-managed git worktree (`--worktree`).
+
+  The CLI rejects it together with `ephemeral/1`; building such a command
+  raises `ArgumentError`. Requires codex-cli 0.157.1 or later.
+  """
+  @spec worktree(t()) :: t()
+  def worktree(%__MODULE__{} = e), do: %{e | worktree: true}
+
+  @doc """
+  Set the source classification for a newly created thread (`--thread-source`).
+
+  Requires codex-cli 0.157.1 or later.
+  """
+  @spec thread_source(t(), String.t()) :: t()
+  def thread_source(%__MODULE__{} = e, source) when is_binary(source),
+    do: %{e | thread_source: source}
+
+  @doc """
+  Request an experimental cyber access program for this turn
+  (`--cyber-access-program`): `:standard`, `:daybreak_blue` or
+  `:daybreak_red`.
+
+  OpenAI provider only. Requires codex-cli 0.162.0 or later.
+  """
+  @spec cyber_access_program(t(), cyber_access_program()) :: t()
+  def cyber_access_program(%__MODULE__{} = e, program)
+      when program in [:standard, :daybreak_blue, :daybreak_red],
+      do: %{e | cyber_access_program: program}
 
   @doc "Set the working directory for the codex subprocess."
   @spec cd(t(), String.t()) :: t()
@@ -362,6 +413,8 @@ defmodule CodexWrapper.Exec do
 
   @impl Command
   def args(%__MODULE__{} = e) do
+    validate_combinations!(e)
+
     ["exec"]
     |> add_list("-c", config_overrides(e))
     |> add_list("--enable", e.enabled_features)
@@ -378,10 +431,14 @@ defmodule CodexWrapper.Exec do
       e.dangerously_bypass_approvals_and_sandbox
     )
     |> add_bool("--dangerously-bypass-hook-trust", e.dangerously_bypass_hook_trust)
+    |> add_bool("--approve-for-me", e.approve_for_me)
     |> add_opt("--cd", e.cd)
     |> add_bool("--skip-git-repo-check", e.skip_git_repo_check)
     |> add_list("--add-dir", e.add_dirs)
     |> add_bool("--ephemeral", e.ephemeral)
+    |> add_bool("--worktree", e.worktree)
+    |> add_opt("--thread-source", e.thread_source)
+    |> add_opt("--cyber-access-program", format_cyber_access_program(e.cyber_access_program))
     |> add_bool("--ignore-user-config", e.ignore_user_config)
     |> add_bool("--ignore-rules", e.ignore_rules)
     |> add_opt("--output-schema", e.output_schema)
@@ -418,7 +475,35 @@ defmodule CodexWrapper.Exec do
   defp add_list(args, _flag, []), do: args
   defp add_list(args, flag, values), do: args ++ Enum.flat_map(values, &[flag, &1])
 
+  # Combinations codex-cli 0.165.0 rejects at argument parsing. Failing here
+  # keeps the error before spawning and names the builder calls.
+  defp validate_combinations!(%__MODULE__{approve_for_me: true} = e)
+       when not is_nil(e.sandbox) or e.full_auto do
+    raise ArgumentError,
+          "approve_for_me/1 cannot be combined with sandbox/2 or full_auto/1: " <>
+            "codex rejects --approve-for-me with --sandbox"
+  end
+
+  defp validate_combinations!(%__MODULE__{
+         approve_for_me: true,
+         dangerously_bypass_approvals_and_sandbox: true
+       }) do
+    raise ArgumentError,
+          "approve_for_me/1 cannot be combined with dangerously_bypass_approvals_and_sandbox/1"
+  end
+
+  defp validate_combinations!(%__MODULE__{worktree: true, ephemeral: true}) do
+    raise ArgumentError, "worktree/1 cannot be combined with ephemeral/1"
+  end
+
+  defp validate_combinations!(_e), do: :ok
+
   # --- Format helpers ---
+
+  defp format_cyber_access_program(nil), do: nil
+  defp format_cyber_access_program(:standard), do: "standard"
+  defp format_cyber_access_program(:daybreak_blue), do: "daybreak_blue"
+  defp format_cyber_access_program(:daybreak_red), do: "daybreak_red"
 
   # `--full-auto` is deprecated upstream ("use --sandbox workspace-write"),
   # so translate it instead of emitting it. An explicit sandbox/2 call is

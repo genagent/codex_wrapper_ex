@@ -139,6 +139,12 @@ defmodule CodexWrapper do
     * `:image` - Image path, or a list of them
     * `:config` - `key=value` config override, or a list of them
     * `:enable` / `:disable` - Feature name, or a list of them
+    * `:approve_for_me` - Route approval requests through automatic review
+      (boolean); not with `:sandbox`, `:full_auto` or the bypass flag
+    * `:worktree` - Run in a new codex-managed git worktree (boolean); not
+      with `:ephemeral`
+    * `:thread_source` - Source classification for a new thread
+    * `:cyber_access_program` - `:standard`, `:daybreak_blue` or `:daybreak_red`
 
   An unknown option, or a value of the wrong type, raises `ArgumentError`.
   A nonzero exit returns `{:ok, %Result{success: false}}`.

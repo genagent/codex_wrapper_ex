@@ -49,9 +49,10 @@ defmodule CodexWrapper.Session do
   Any exec option accepted by `CodexWrapper.exec/2`. The options apply to
   every turn, with two exceptions:
 
-    * `:profile`, `:cd`, `:add_dir`, `:color`, `:oss`, `:local_provider` and
-      `:search` apply to the first turn only, since `codex exec resume`
-      rejects them. They are skipped on resumed turns, and passing one to
+    * `:profile`, `:cd`, `:add_dir`, `:color`, `:oss`, `:local_provider`,
+      `:search`, `:approve_for_me`, `:worktree`, `:thread_source` and
+      `:cyber_access_program` apply to the first turn only, since the
+      `ExecResume` builder cannot emit them. They are skipped on resumed turns, and passing one to
       `send/3` or `stream/3` on a resumed turn raises `ArgumentError`.
     * `:sandbox` and `:approval_policy` are emitted on resumed turns as
       `-c sandbox_mode="..."` and `-c approval_policy="..."`.
@@ -67,9 +68,8 @@ defmodule CodexWrapper.Session do
   @doc """
   Resume an existing session by ID.
 
-  Takes the options `new/2` takes, except the first-turn-only ones
-  (`:profile`, `:cd`, `:add_dir`, `:color`, `:oss`, `:local_provider` and
-  `:search`): every turn of a resumed session runs `codex exec resume`, so
+  Takes the options `new/2` takes, except the first-turn-only ones listed
+  there: every turn of a resumed session runs `codex exec resume`, so
   they raise `ArgumentError` here.
   """
   @spec resume(Config.t(), String.t(), keyword()) :: t()
