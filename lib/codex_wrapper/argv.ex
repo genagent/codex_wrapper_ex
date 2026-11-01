@@ -1,0 +1,120 @@
+defmodule CodexWrapper.Argv do
+  @moduledoc false
+
+  # Leave room for interpreter paths, alignment and shell-added environment
+  # entries. This deliberately rejects inputs very close to the OS ceiling.
+  @reserve_bytes 4_096
+  @pointer_bytes 8
+  @limits_key {__MODULE__, :limits}
+
+  @type size_error :: {:argument_list_too_long, map()}
+
+  @spec validate(String.t(), [String.t()], keyword()) ::
+          :ok | {:error, size_error() | {:invalid_argument, non_neg_integer()}}
+  def validate(binary, args, opts) do
+    validate(binary, args, opts, limits())
+  end
+
+  @doc false
+  def validate(binary, args, opts, limits) do
+    argv = [binary | args]
+    env = environment(opts)
+
+    with :ok <- valid_arguments(argv),
+         :ok <- validate_strings(argv, :argument, limits.string),
+         :ok <- validate_strings(env, :environment, limits.string) do
+      bytes =
+        string_bytes(argv) + string_bytes(env) +
+          @pointer_bytes * (length(argv) + length(env) + 2) +
+          byte_size(binary) + 1 + @reserve_bytes
+
+      if bytes > limits.total,
+        do: too_long(:total, bytes, limits.total),
+        else: :ok
+    end
+  end
+
+  # Resource limits are assumed fixed for this VM's lifetime. Cache discovery
+  # so validating the target and its launcher does not spawn repeated getconf
+  # processes. Linux also limits each argument/environment string to 32 pages,
+  # including its terminating NUL. macOS has no separate string cap.
+  @doc false
+  def limits do
+    case :persistent_term.get(@limits_key, nil) do
+      nil ->
+        executable = System.find_executable("getconf") || "/usr/bin/getconf"
+        limits = discover_limits(:os.type(), executable)
+        :persistent_term.put(@limits_key, limits)
+        limits
+
+      limits ->
+        limits
+    end
+  end
+
+  @doc false
+  def discover_limits(platform, executable) do
+    string =
+      case platform do
+        {:unix, :linux} -> 32 * getconf(executable, "PAGESIZE", 4_096)
+        _ -> nil
+      end
+
+    %{total: getconf(executable, "ARG_MAX", default_total(platform)), string: string}
+  end
+
+  # Linux's usual 8 MiB stack gives ARG_MAX = RLIMIT_STACK / 4. Darwin's
+  # default is 1 MiB. Unknown platforms retain the existing conservative bound.
+  defp default_total({:unix, :linux}), do: 2_097_152
+  defp default_total({:unix, :darwin}), do: 1_048_576
+  defp default_total(_platform), do: 32_768
+
+  defp environment(opts) do
+    base = if opts[:env_mode] == :replace, do: %{}, else: System.get_env()
+
+    opts
+    |> Keyword.get(:env, [])
+    |> CodexWrapper.Config.validate_env!()
+    |> Enum.reduce(base, fn
+      {key, false}, env -> Map.delete(env, key)
+      {key, value}, env -> Map.put(env, key, value)
+    end)
+    |> Enum.map(fn {key, value} -> key <> "=" <> value end)
+  end
+
+  defp valid_arguments(argv) do
+    case Enum.find_index(argv, &String.contains?(&1, <<0>>)) do
+      nil -> :ok
+      index -> {:error, {:invalid_argument, index}}
+    end
+  end
+
+  defp validate_strings(_values, _kind, nil), do: :ok
+
+  defp validate_strings(values, kind, limit) do
+    case Enum.find(values, &(byte_size(&1) + 1 > limit)) do
+      nil -> :ok
+      value -> too_long(kind, byte_size(value) + 1, limit)
+    end
+  end
+
+  defp string_bytes(values), do: Enum.reduce(values, 0, &(byte_size(&1) + 1 + &2))
+
+  defp too_long(kind, bytes, limit),
+    do: {:error, {:argument_list_too_long, %{kind: kind, bytes: bytes, limit: limit}}}
+
+  defp getconf(executable, name, fallback) do
+    case System.cmd(executable, [name], stderr_to_stdout: true) do
+      {output, 0} ->
+        case Integer.parse(String.trim(output)) do
+          {value, ""} when value > 0 -> value
+          _ -> fallback
+        end
+
+      _ ->
+        fallback
+    end
+  rescue
+    ErlangError -> fallback
+  end
+end

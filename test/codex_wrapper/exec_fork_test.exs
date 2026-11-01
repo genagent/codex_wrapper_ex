@@ -74,7 +74,13 @@ defmodule CodexWrapper.ExecForkTest do
     end
 
     test "a prompt beginning with - is passed after the terminator" do
-      args = @source |> ExecFork.new() |> ExecFork.prompt("-x marks the spot") |> ExecFork.args()
+      args =
+        @source
+        |> ExecFork.new()
+        |> ExecFork.prompt("-x marks the spot")
+        |> ExecFork.prompt_input(:argv)
+        |> ExecFork.args()
+
       assert args == ["exec", "fork", "--", @source, "-x marks the spot"]
     end
 
@@ -84,19 +90,26 @@ defmodule CodexWrapper.ExecForkTest do
         |> ExecFork.new()
         |> ExecFork.json()
         |> ExecFork.prompt("--help me compare")
+        |> ExecFork.prompt_input(:argv)
         |> ExecFork.args()
 
       assert args == ["exec", "fork", "--json", "--", @source, "--help me compare"]
     end
 
     test "a prompt that is exactly -- is passed after the terminator" do
-      args = @source |> ExecFork.new() |> ExecFork.prompt("--") |> ExecFork.args()
+      args =
+        @source
+        |> ExecFork.new()
+        |> ExecFork.prompt("--")
+        |> ExecFork.prompt_input(:argv)
+        |> ExecFork.args()
+
       assert args == ["exec", "fork", "--", @source, "--"]
     end
 
     test "prompt follows the session id" do
       args = @source |> ExecFork.new() |> ExecFork.prompt("try again") |> ExecFork.args()
-      assert args == ["exec", "fork", "--", @source, "try again"]
+      assert args == ["exec", "fork", "--", @source, "-"]
     end
 
     test "every supported option, in order, with positionals last" do
@@ -148,7 +161,7 @@ defmodule CodexWrapper.ExecForkTest do
                "/tmp/last.txt",
                "--",
                @source,
-               "branch off"
+               "-"
              ]
     end
 
@@ -305,7 +318,7 @@ defmodule CodexWrapper.ExecForkTest do
       assert exec.session_id == @source
 
       assert_receive {:runner_run, "codex", args, _opts, 1_000}
-      assert args == ["exec", "fork", "--json", "--", @source, "branch"]
+      assert args == ["exec", "fork", "--json", "--", @source, "-"]
     end
 
     test "fork/2 reports a non-zero exit with the result", %{config: config} do

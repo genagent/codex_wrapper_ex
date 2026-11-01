@@ -42,6 +42,9 @@ defmodule CodexWrapper.Options do
 
   # --- Exec ---
 
+  defp exec_opt({:prompt_input, v}, command),
+    do: Exec.prompt_input(command, member!(:prompt_input, v, [:stdin, :argv]))
+
   defp exec_opt({:model, v}, e), do: Exec.model(e, string!(:model, v))
   defp exec_opt({:profile, v}, e), do: Exec.profile(e, string!(:profile, v))
   defp exec_opt({:sandbox, v}, e), do: Exec.sandbox(e, member!(:sandbox, v, @sandbox_modes))
@@ -100,6 +103,9 @@ defmodule CodexWrapper.Options do
 
   # --- ExecResume ---
 
+  defp exec_resume_opt({:prompt_input, v}, command),
+    do: ExecResume.prompt_input(command, member!(:prompt_input, v, [:stdin, :argv]))
+
   defp exec_resume_opt({:model, v}, e), do: ExecResume.model(e, string!(:model, v))
 
   defp exec_resume_opt({:sandbox, v}, e),
@@ -157,6 +163,9 @@ defmodule CodexWrapper.Options do
   defp exec_resume_opt(other, _e), do: unknown!(other, "a resumed session turn")
 
   # --- Review ---
+
+  defp review_opt({:prompt_input, v}, command),
+    do: Review.prompt_input(command, member!(:prompt_input, v, [:stdin, :argv]))
 
   defp review_opt({:prompt, v}, r), do: Review.prompt(r, string!(:prompt, v))
   defp review_opt({:uncommitted, v}, r), do: flag(r, :uncommitted, v, &Review.uncommitted/1)

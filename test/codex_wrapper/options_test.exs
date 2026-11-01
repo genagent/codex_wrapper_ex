@@ -35,6 +35,24 @@ defmodule CodexWrapper.OptionsTest do
     {[disable: "f2"], ["--disable", "f2"]}
   ]
 
+  test "prompt_input routes through every keyword builder" do
+    for mode <- [:stdin, :argv] do
+      assert Options.exec("hello", prompt_input: mode).prompt_input == mode
+      assert Options.exec_resume("session", "hello", prompt_input: mode).prompt_input == mode
+      assert Options.review(prompt: "hello", prompt_input: mode).prompt_input == mode
+    end
+
+    assert Exec.args(Options.exec("hello", prompt_input: :argv)) == ["exec", "--", "hello"]
+
+    for build <- [
+          fn -> Options.exec("hello", prompt_input: :file) end,
+          fn -> Options.exec_resume("session", "hello", prompt_input: :file) end,
+          fn -> Options.review(prompt_input: :file) end
+        ] do
+      assert_raise ArgumentError, ~r/:prompt_input expects one of/, build
+    end
+  end
+
   describe "exec/2" do
     for {opts, fragment} <- @exec_rows do
       @opts opts
@@ -43,13 +61,13 @@ defmodule CodexWrapper.OptionsTest do
       test "maps #{inspect(opts)}" do
         args = Exec.args(Options.exec("hello", @opts))
         assert contains?(args, @fragment), "#{inspect(@fragment)} not in #{inspect(args)}"
-        assert List.last(args) == "hello"
+        assert List.last(args) == "-"
       end
     end
 
     test "false booleans emit nothing" do
       args = Exec.args(Options.exec("hi", full_auto: false, oss: false, search: false))
-      assert args == ["exec", "--", "hi"]
+      assert args == ["exec", "--", "-"]
     end
 
     test "list values emit one flag each" do
@@ -156,7 +174,7 @@ defmodule CodexWrapper.OptionsTest do
       assert "--ignore-user-config" in args
       assert "--strict-config" in args
       assert "--ignore-rules" in args
-      assert Enum.take(args, -3) == ["--", "thread-A", "next"]
+      assert Enum.take(args, -3) == ["--", "thread-A", "-"]
     end
 
     test "raises on a first-turn-only option" do
@@ -236,7 +254,7 @@ defmodule CodexWrapper.OptionsTest do
       assert turn2 =~ "[--ignore-rules]"
       assert turn2 =~ "[--model] [m1]"
       refute turn2 =~ "--profile"
-      assert turn2 =~ "[--] [thread-A] [second]"
+      assert turn2 =~ "[--] [thread-A] [-]"
     end
 
     test "an explicit sandbox wins over full_auto on resumed turns", ctx do

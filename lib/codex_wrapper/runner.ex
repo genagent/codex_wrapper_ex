@@ -6,8 +6,8 @@ defmodule CodexWrapper.Runner do
 
   `Command.run/3` routes every synchronous command (`Exec`, `ExecResume`,
   `Review`, `CodexWrapper.exec/2`) through the configured runner. The
-  default is `CodexWrapper.Runner.Port`, the `/bin/sh`-with-closed-stdin
-  `Port` the library has always used.
+  default is `CodexWrapper.Runner.Port`, a supervised `/bin/sh` Port.
+  Prompt bytes are delivered on stdin; commands without input receive EOF.
 
   When its port closes (a timeout, an early stream halt, the owning
   process dying, or the BEAM dying) the default runner signals the `codex`
@@ -50,6 +50,14 @@ defmodule CodexWrapper.Runner do
   `{:error, {:signal, signal}}` when `Runner.Forcola` reports death by
   signal. On `Runner.Port` a missing executable is exit status 127 from
   the shell. A zero exit ends the stream with no error item.
+
+  Built-in runners reject oversized argument lists before spawning with
+  `{:error, {:argument_list_too_long, details}}`. The check includes the
+  effective environment, launcher overhead and Linux per-string limits.
+  Limits are cached for the VM's lifetime. The check reserves 4 KiB below
+  `getconf ARG_MAX`, with a 2 MiB Linux or 1 MiB macOS fallback when discovery
+  fails (32 KiB on other platforms). Error details contain sizes, never
+  argument contents.
   """
 
   @typedoc "Runner error reasons. `:timeout` is common to every runner."
@@ -62,6 +70,9 @@ defmodule CodexWrapper.Runner do
           | {:signal, term()}
           | {:spawn, term()}
           | {:io, term()}
+          | {:argument_list_too_long, map()}
+          | {:invalid_argument, non_neg_integer()}
+          | {:stdin_file, term()}
 
   @typedoc """
   Execution options, as produced by `CodexWrapper.Config.cmd_opts/1`:
@@ -69,6 +80,10 @@ defmodule CodexWrapper.Runner do
     * `:cd` -- working directory (string)
     * `:env` -- list of `{name, value}` string tuples
     * `:stderr_to_stdout` -- merge stderr into stdout
+    * `:stdin` -- complete prompt bytes, delivered before EOF. This key is
+      absent when the command has no input. Custom runners must support it
+      on every implemented execution callback, or their callers must select
+      `prompt_input: :argv` on prompt commands.
   """
   @type opts :: keyword()
 
@@ -209,14 +224,14 @@ defmodule CodexWrapper.Runner do
   end
 
   @doc false
-  def run(config, args) do
+  def run(config, args, opts \\ []) do
     runner = impl(config)
 
     with :ok <- validate_options(runner, CodexWrapper.Config.runner_options(config)) do
       case runner.run(
              config.binary,
              args,
-             CodexWrapper.Config.execution_opts(config),
+             Keyword.merge(CodexWrapper.Config.execution_opts(config), opts),
              timeout(config)
            ) do
         {:error, :timeout} ->

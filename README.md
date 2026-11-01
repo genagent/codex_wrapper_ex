@@ -74,6 +74,50 @@ CodexWrapper.stream("Implement the feature described in issue #42",
 |> Stream.run()
 ```
 
+## Prompt transport
+
+`Exec`, `ExecResume`, `Review` and `ExecFork` send prompts on stdin by default.
+This also applies to convenience calls and initial or resumed session turns,
+for both execute and stream. The argument list contains `-` instead of the
+prompt, so prompt size does not consume the operating system's argv budget
+and the prompt is absent from process arguments.
+
+Each invocation creates a 0600 file in a private 0700 directory. The launcher
+opens the file as stdin and unlinks it before codex runs. The wrapper also
+cleans up files after startup failures, timeouts and stream halts. Streams
+create their file when enumerated.
+
+Select the previous argv form when needed:
+
+```elixir
+CodexWrapper.exec("Explain this error", prompt_input: :argv)
+
+Exec.new("Explain this error")
+|> Exec.prompt_input(:argv)
+|> Exec.execute(config)
+```
+
+All four builders support `prompt_input/2`. Session defaults and per-turn
+options accept `:prompt_input` too. A prompt of exactly `-` is always sent as
+literal text on stdin, even in argv mode. An omitted optional prompt remains
+omitted.
+
+The built-in runners reject oversized argument lists or environment strings
+before starting codex, returning `{:error, {:argument_list_too_long, details}}`.
+Streams emit `%CodexWrapper.StreamError{}` with that reason. The size check
+includes inherited environment, launcher overhead and Linux per-string
+limits. Limits are cached for the VM's lifetime. The check reserves 4 KiB below
+the aggregate limit reported by `getconf`, discovered through `PATH` with
+`/usr/bin/getconf` as a fallback. If discovery fails, the aggregate defaults are
+2 MiB on Linux and 1 MiB on macOS (32 KiB on other platforms). Argv mode still exposes
+prompt text in the process table and is subject to these limits.
+
+Custom runners receive prompt bytes as `opts[:stdin]`; they must deliver all
+bytes and then EOF, or callers must select `prompt_input: :argv`. The built-in
+runners preserve their termination behavior: Port sends INT, TERM and KILL;
+Forcola one-shot execution does too, while Forcola 0.7 streaming retains its
+TERM/KILL-only schedule.
+
 ## Code review
 
 ```elixir
@@ -853,8 +897,8 @@ Every `codex` subprocess -- the synchronous commands
 `Review.execute/2`) and the NDJSON streaming paths (`Exec.stream/2`,
 `ExecResume.stream/2`, `Review.stream/2`, `Session.stream/3`) -- routes
 through a runner module. The default, `CodexWrapper.Runner.Port`, runs `codex` under a
-`/bin/sh` wrapper with stdin closed and bounds it with a BEAM `Task`
-timeout.
+`/bin/sh` wrapper, supplies the prompt on stdin, and bounds synchronous execution
+with a BEAM `Task` timeout. Commands without prompt input receive `/dev/null`.
 
 When the port closes -- a timeout, a stream idle timeout or early halt, the
 owning process dying, or the BEAM dying -- the wrapper's watchdog signals
@@ -954,6 +998,7 @@ streams.
 
 | Option | Type | Description |
 |---|---|---|
+| `:prompt_input` | `:stdin` or `:argv` | Prompt transport (default `:stdin`) |
 | `:model` | `String.t()` | Model name (e.g., `"o3"`, `"o4-mini"`) |
 | `:profile` | `String.t()` | Named config profile (`--profile`) |
 | `:sandbox` | atom | `:read_only`, `:workspace_write`, or `:danger_full_access` |
@@ -1008,7 +1053,7 @@ this table.
 | `CodexWrapper.Telemetry` | `:telemetry` span wrappers for exec paths |
 | `CodexWrapper.Command` | Behaviour for CLI commands |
 | `CodexWrapper.Runner` | Behaviour selecting how subprocesses execute and stream |
-| `CodexWrapper.Runner.Port` | Default runner (`/bin/sh` Port with closed stdin and INT/TERM/KILL cleanup of `codex`) |
+| `CodexWrapper.Runner.Port` | Default runner (`/bin/sh` Port with prompt stdin and INT/TERM/KILL cleanup of `codex`) |
 | `CodexWrapper.Runner.Forcola` | Optional leak-free runner via `forcola` |
 | `CodexWrapper.Commands.Auth` | Authentication (login/logout/status) |
 | `CodexWrapper.Commands.Features` | Feature flag management |

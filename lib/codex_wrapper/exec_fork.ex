@@ -61,6 +61,7 @@ defmodule CodexWrapper.ExecFork do
   @type t :: %__MODULE__{
           session_id: String.t(),
           prompt: String.t() | nil,
+          prompt_input: :stdin | :argv,
           model: String.t() | nil,
           sandbox: sandbox_mode() | nil,
           full_auto: boolean(),
@@ -108,6 +109,7 @@ defmodule CodexWrapper.ExecFork do
     :output_schema,
     :output_last_message,
     :sandbox,
+    prompt_input: :stdin,
     full_auto: false,
     dangerously_bypass_approvals_and_sandbox: false,
     dangerously_bypass_hook_trust: false,
@@ -138,12 +140,25 @@ defmodule CodexWrapper.ExecFork do
   # --- Builder functions ---
 
   @doc """
+  Select how the prompt reaches the CLI: `:stdin` (default) or `:argv`.
+
+  Stdin mode passes `-` as the prompt positional and sends the prompt bytes
+  through a private temporary file that is unlinked before codex runs.
+  Argv mode retains the positional prompt and exposes it in the process table.
+  A prompt of exactly `-` is always sent literally through stdin, including
+  in argv mode.
+  """
+  @spec prompt_input(t(), :stdin | :argv) :: t()
+  def prompt_input(%__MODULE__{} = command, mode) when mode in [:stdin, :argv],
+    do: %{command | prompt_input: mode}
+
+  @doc """
   Set the prompt to send in the new session after forking.
 
-  The prompt is passed after a `--` option terminator, so a prompt that
-  begins with `-` or `--` reaches the CLI as the prompt rather than as a
-  flag. A prompt that is exactly `-` still tells the CLI to read the
-  prompt from stdin.
+  The prompt is delivered on stdin by default, with `-` after the `--`
+  option terminator. `prompt_input/2` selects argv compatibility mode.
+  A prompt of exactly `-` is sent as literal text through stdin in either
+  mode; it never reads input from the caller's terminal.
   """
   @spec prompt(t(), String.t()) :: t()
   def prompt(%__MODULE__{} = e, prompt), do: %{e | prompt: prompt}
@@ -450,7 +465,12 @@ defmodule CodexWrapper.ExecFork do
         args = Config.base_args(config) ++ args(exec)
 
         config
-        |> Runner.stream_lines(config.binary, args, Config.stream_opts(config), config.timeout)
+        |> Runner.stream_lines(
+          config.binary,
+          args,
+          Command.stdin_opts(exec, Config.stream_opts(config)),
+          config.timeout
+        )
         |> raise_if_unsupported(config)
         |> JsonLineEvent.parse_stream()
       end
@@ -518,7 +538,7 @@ defmodule CodexWrapper.ExecFork do
     |> add_opt("--output-schema", e.output_schema)
     |> add_bool("--json", e.json)
     |> add_opt("--output-last-message", e.output_last_message)
-    |> add_positionals([e.session_id, e.prompt])
+    |> add_positionals([e.session_id, Command.prompt_arg(e)])
   end
 
   @impl Command

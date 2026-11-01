@@ -9,6 +9,10 @@ defmodule CodexWrapper.StreamError do
   means codex exited nonzero (127 when the executable was not found on
   `Runner.Port`); `{:spawn, reason}` means it could not be started;
   `{:signal, signal}` means `Runner.Forcola` reported death by signal.
+  `{:argument_list_too_long, details}` means the argument list or environment
+  exceeded the pre-spawn size bound; details contain sizes without contents.
+  `{:invalid_argument, index}` identifies an argument containing NUL.
+  `{:stdin_file, reason}` means prompt-file preparation failed.
   """
 
   @type t :: %__MODULE__{reason: term()}

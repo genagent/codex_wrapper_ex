@@ -337,7 +337,7 @@ defmodule CodexWrapper.ObservedExecutionTest do
     assert argv =~ "--model\ncodex-model\n"
     assert argv =~ "--output-schema\nschema.json\n"
     assert argv =~ ~s(approval_policy="never")
-    assert argv =~ "--\n-prompt\n"
+    assert argv =~ "--\n-\n"
     refute argv =~ "session_observer"
     assert {:ok, [_started, _completed]} = CodexWrapper.exec_json("p", opts)
     assert_observation(context)
@@ -415,7 +415,12 @@ defmodule CodexWrapper.ObservedExecutionTest do
     assert length(pids) == 2
 
     Enum.each(pids, fn pid ->
-      await(fn -> elem(System.cmd("kill", ["-0", pid], stderr_to_stdout: true), 1) != 0 end)
+      # A background sleep inherits ignored SIGINT. Allow the default two-second
+      # INT grace, then SIGTERM delivery and OS reaping, before requiring it gone.
+      await(
+        fn -> elem(System.cmd("kill", ["-0", pid], stderr_to_stdout: true), 1) != 0 end,
+        System.monotonic_time(:millisecond) + 5_000
+      )
     end)
   end
 

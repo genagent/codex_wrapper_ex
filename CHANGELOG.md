@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Breaking Changes
+
+* Prompt commands now pass `-` in argv and deliver prompt bytes through stdin by default. Custom runners must deliver `opts[:stdin]` and EOF, or callers must select `prompt_input: :argv`.
+
+### Bug Fixes
+
+* Port startup failures now return `{:error, {:spawn, reason}}` instead of raising. Streaming consumers receive a `CodexWrapper.StreamError` item.
+
 ## [0.8.1](https://github.com/genagent/codex_wrapper_ex/compare/v0.8.0...v0.8.1) (2026-10-25)
 
 
