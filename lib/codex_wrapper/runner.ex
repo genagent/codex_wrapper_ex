@@ -78,7 +78,9 @@ defmodule CodexWrapper.Runner do
   Execution options, as produced by `CodexWrapper.Config.cmd_opts/1`:
 
     * `:cd` -- working directory (string)
-    * `:env` -- list of `{name, value}` string tuples
+    * `:env` -- list of `{String.t(), String.t() | false}` tuples. A `false`
+      value removes an inherited variable. Custom runners must honor these
+      removals on every implemented execution callback.
     * `:stderr_to_stdout` -- merge stderr into stdout
     * `:stdin` -- complete prompt bytes, delivered before EOF. This key is
       absent when the command has no input. Custom runners must support it

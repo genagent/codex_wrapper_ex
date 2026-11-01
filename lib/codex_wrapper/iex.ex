@@ -45,7 +45,8 @@ defmodule CodexWrapper.IEx do
   Start a new conversation. Prints the response.
 
   Accepts all options from `CodexWrapper.exec/2` -- config options
-  (`:working_dir`, `:binary`, `:env`, `:timeout`, and `:verbose`, where only `false` is supported)
+  (`:working_dir`, `:binary`, `:env`, `:release_env`, `:timeout`, and `:verbose`,
+  where only `false` is supported)
   and exec options (`:model`, `:sandbox`, `:approval_policy`, etc.).
   """
   def chat(prompt, opts \\ []) do
@@ -210,7 +211,7 @@ defmodule CodexWrapper.IEx do
     IO.puts("\e[33m(#{turns} turn#{plural(turns)})\e[0m")
   end
 
-  @config_keys [:binary, :working_dir, :env, :timeout, :verbose]
+  @config_keys [:binary, :working_dir, :env, :release_env, :timeout, :verbose]
 
   defp split_opts(opts) do
     Enum.split_with(opts, fn {k, _v} -> k in @config_keys end)
