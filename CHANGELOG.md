@@ -10,6 +10,29 @@
 
 * Port startup failures now return `{:error, {:spawn, reason}}` instead of raising. Streaming consumers receive a `CodexWrapper.StreamError` item.
 
+## [0.9.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.8.1...v0.9.0) (2026-11-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* deliver prompts on stdin ([#169](https://github.com/genagent/codex_wrapper_ex/issues/169))
+* **session:** total_cost/1 returns nil instead of 0.0.
+* options that were ignored now raise ArgumentError.
+
+### Features
+
+* add LastMessage to read --output-last-message back ([#168](https://github.com/genagent/codex_wrapper_ex/issues/168)) ([dd5bf0d](https://github.com/genagent/codex_wrapper_ex/commit/dd5bf0dd58ba21b8bb8b8dbf344c9e1ae6b7b0fe))
+* deliver prompts on stdin ([#169](https://github.com/genagent/codex_wrapper_ex/issues/169)) ([a8f513f](https://github.com/genagent/codex_wrapper_ex/commit/a8f513f153a63f4a0617efddc2a5807c9ec4b91d))
+
+
+### Bug Fixes
+
+* **env:** accept nil and false as unset in Config.env on every runner path ([#162](https://github.com/genagent/codex_wrapper_ex/issues/162)) ([f961e05](https://github.com/genagent/codex_wrapper_ex/commit/f961e05dd2b8ddde5a5e1dafac2e8388e227274b))
+* map every exec option through one shared mapper ([#160](https://github.com/genagent/codex_wrapper_ex/issues/160)) ([708bd67](https://github.com/genagent/codex_wrapper_ex/commit/708bd67b7f4daa55283d44521bb38b450863fd7e))
+* **session:** return failed turns as errors and take the thread id from thread.started ([#164](https://github.com/genagent/codex_wrapper_ex/issues/164)) ([4cbfb6a](https://github.com/genagent/codex_wrapper_ex/commit/4cbfb6ae43de78cf626188ba2f7fbd1d5073598f))
+* **session:** return nil from total_cost/1, since codex reports no cost ([#163](https://github.com/genagent/codex_wrapper_ex/issues/163)) ([e99c936](https://github.com/genagent/codex_wrapper_ex/commit/e99c936af21cad8d7823dcb18d18ecd7a3fb752b))
+* **stream:** end streams with an error item on a nonzero exit or spawn failure ([#161](https://github.com/genagent/codex_wrapper_ex/issues/161)) ([17e42ec](https://github.com/genagent/codex_wrapper_ex/commit/17e42ec5d266e8c572bf4ce7e5028d9e3227ce51))
+
 ## [0.8.1](https://github.com/genagent/codex_wrapper_ex/compare/v0.8.0...v0.8.1) (2026-10-25)
 
 
