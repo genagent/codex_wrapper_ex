@@ -31,13 +31,10 @@ if Code.ensure_loaded?(Forcola) do
     codex's process group or ignore these signals; on Linux, forcola's
     cgroup option is the backstop.
 
-    forcola closes the child's stdin immediately after spawn (forcola
-    0.3.4, forcola#67), so `codex` sees EOF naturally -- the `/bin/sh
-    ... < /dev/null` wrapper the default runner needs is unnecessary
-    here. Before 0.3.4 forcola left the child's stdin open, and `codex
-    exec` would print "Reading additional input from stdin..." and hang
-    until the timeout elapsed. The `~> 0.7.0` dependency floor includes
-    this fix, raw output observation and bounded one-shot termination evidence.
+    Prompts use a private file opened and unlinked by a short shell launcher
+    before it execs codex. The launcher retains the target's process group and
+    one-shot signal schedule. Without prompt input, forcola closes stdin
+    immediately after spawn, so commands reading stdin see EOF.
 
     forcola requires a finite whole-run bound. Synchronous commands with
     no `:timeout` use `forcola_default_timeout_ms` (five minutes by
@@ -58,6 +55,8 @@ if Code.ensure_loaded?(Forcola) do
     """
 
     @behaviour CodexWrapper.Runner
+
+    alias CodexWrapper.{Argv, StdinFile}
 
     # forcola requires a mandatory whole-run bound. When the caller sets no
     # timeout we still want group-kill-on-BEAM-death, so we substitute a
@@ -118,28 +117,30 @@ if Code.ensure_loaded?(Forcola) do
 
     @impl true
     def run(binary, args, opts, timeout) do
+      bound = timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end)
+
       with :ok <- validate_options(Keyword.take(opts, @transport_options)) do
-        Forcola.run([binary | args], one_shot_opts(opts, timeout))
-        |> project(
-          timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end),
-          false
-        )
+        with_launch(binary, args, opts, fn argv ->
+          Forcola.run(argv, one_shot_opts(opts, timeout))
+          |> project(bound, false)
+        end)
       end
     end
 
     @impl true
     def run_observed(binary, args, opts, timeout, target) do
-      with :ok <- validate_options(Keyword.take(opts, @transport_options)) do
-        forcola_opts =
-          one_shot_opts(opts, timeout)
-          |> Keyword.put(:merge_stderr, false)
-          |> Keyword.put(:output_observer, target)
+      bound = timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end)
 
-        Forcola.run([binary | args], forcola_opts)
-        |> project(
-          timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end),
-          true
-        )
+      with :ok <- validate_options(Keyword.take(opts, @transport_options)) do
+        with_launch(binary, args, opts, fn argv ->
+          forcola_opts =
+            one_shot_opts(opts, timeout)
+            |> Keyword.put(:merge_stderr, false)
+            |> Keyword.put(:output_observer, target)
+
+          Forcola.run(argv, forcola_opts)
+          |> project(bound, true)
+        end)
       end
     end
 
@@ -150,26 +151,119 @@ if Code.ensure_loaded?(Forcola) do
 
     @impl true
     def run_evidenced(binary, args, opts, timeout, target) do
-      # A 0.6 collector cannot prove the new contract. Refuse before Forcola.run
-      # or shim discovery; an unresolved 0.6 dependency must not silently run it.
-      case validate_evidence() do
-        :ok ->
-          bound = timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end)
+      bound = timeout || Keyword.get_lazy(opts, :timeout_ms, fn -> effective_timeout(nil) end)
 
-          forcola_opts =
-            one_shot_opts(opts, timeout)
-            |> Keyword.put(:merge_stderr, false)
-            |> Keyword.put(:output_observer, target)
-            |> Keyword.put_new(:idle_timeout_ms, @default_timeout_ms)
-            |> Keyword.put_new(:max_output_bytes, 1_048_576)
+      # Capability and argv failures carry no fabricated native child status.
+      result =
+        with :ok <- validate_evidence(),
+             :ok <- validate_options(Keyword.take(opts, @transport_options)) do
+          with_launch(binary, args, opts, fn argv ->
+            forcola_opts =
+              one_shot_opts(opts, timeout)
+              |> Keyword.put(:merge_stderr, false)
+              |> Keyword.put(:output_observer, target)
+              |> Keyword.put_new(:idle_timeout_ms, @default_timeout_ms)
+              |> Keyword.put_new(:max_output_bytes, 1_048_576)
 
-          outcome = Forcola.run([binary | args], forcola_opts)
-          {project(outcome, bound, true), evidence(outcome)}
+            outcome = Forcola.run(argv, forcola_opts)
+            {project(outcome, bound, true), evidence(outcome)}
+          end)
+        end
 
-        {:error, _} = error ->
-          {error, %{termination: :pre_spawn}}
+      case result do
+        {:error, _} = error -> {error, %{termination: :pre_spawn}}
+        outcome -> outcome
       end
     end
+
+    defp with_launch(binary, args, opts, fun) do
+      with :ok <- Argv.validate(binary, args, opts),
+           {:ok, binary} <- prompt_executable(binary, opts) do
+        StdinFile.with_file(opts, &validated_launch(launch(binary, args, &1), opts, fun))
+      end
+    end
+
+    # Spawning the stdin launcher succeeds even if its later exec would fail.
+    # Resolve that executable first to retain the native runner's spawn-error
+    # contract. Keep exit 126/127 from a successfully started target unchanged.
+    # The OS still owns the final check if the executable changes after this one.
+    defp prompt_executable(binary, opts) do
+      if is_binary(opts[:stdin]) do
+        directory = Path.absname(to_string(opts[:cd] || File.cwd!()))
+        candidates = executable_candidates(binary, opts, directory)
+
+        case Enum.find_value(candidates, &System.find_executable/1) do
+          nil -> {:error, {:spawn, :executable_not_found}}
+          path -> {:ok, path}
+        end
+      else
+        {:ok, binary}
+      end
+    end
+
+    defp executable_candidates(binary, opts, directory) do
+      if String.contains?(binary, "/") do
+        [Path.absname(binary, directory)]
+      else
+        opts
+        |> executable_path()
+        |> String.split(":")
+        |> Enum.map(&Path.absname(Path.join(&1, binary), directory))
+      end
+    end
+
+    defp executable_path(opts) do
+      inherited = if opts[:env_mode] == :replace, do: nil, else: System.get_env("PATH")
+
+      opts
+      |> Keyword.get(:env, [])
+      |> CodexWrapper.Config.validate_env!()
+      |> Enum.reduce(inherited, fn
+        {"PATH", value}, _previous -> if is_binary(value), do: value
+        _entry, previous -> previous
+      end)
+      |> Kernel.||(default_executable_path())
+    end
+
+    defp default_executable_path do
+      case System.cmd("/usr/bin/getconf", ["PATH"], stderr_to_stdout: true) do
+        {path, 0} -> String.trim(path)
+        _ -> "/bin:/usr/bin"
+      end
+    rescue
+      ErlangError -> "/bin:/usr/bin"
+    end
+
+    defp validated_launch([executable | args] = argv, opts, fun) do
+      with :ok <- Argv.validate(executable, args, opts) do
+        fun.(argv)
+      end
+    end
+
+    # exec retains the process group and signal schedule owned by Forcola.
+    # The only prompt reference in argv is its private temporary path.
+    @stdin_launcher """
+    stdin_file=$1
+    stdin_directory=$2
+    shift 2
+    exec <"$stdin_file" || exit 125
+    /bin/rm -f -- "$stdin_file" || exit 125
+    /bin/rmdir -- "$stdin_directory" || exit 125
+    exec "$@"
+    """
+
+    defp launch(binary, args, nil), do: [binary | args]
+
+    defp launch(binary, args, path),
+      do: [
+        "/bin/sh",
+        "-c",
+        @stdin_launcher,
+        "codex-wrapper",
+        path,
+        Path.dirname(path),
+        binary | args
+      ]
 
     @doc false
     # One-shot options for `Forcola.run/2`. Without caller interrupt options,
@@ -292,11 +386,32 @@ if Code.ensure_loaded?(Forcola) do
           do: Keyword.put(stream_opts, :idle_timeout_ms, idle_timeout_ms),
           else: stream_opts
 
-      unsets
-      |> env_unset_prefix()
-      |> Kernel.++([binary | args])
-      |> Forcola.Stream.lines(stream_opts)
-      |> halt_on_error(timeout, idle_timeout_ms)
+      Stream.flat_map([nil], fn _ ->
+        validated_stream(binary, args, opts, stream_opts, unsets)
+      end)
+    end
+
+    defp validated_stream(binary, args, opts, stream_opts, unsets) do
+      # Stream always inherits the environment; env -u applies its removals.
+      opts = Keyword.delete(opts, :env_mode)
+
+      with :ok <- Argv.validate(binary, args, opts),
+           {:ok, binary} <- prompt_executable(binary, opts) do
+        StdinFile.stream(opts, fn path ->
+          argv = env_unset_prefix(unsets) ++ launch(binary, args, path)
+          stream_with_stdin(argv, stream_opts)
+        end)
+      else
+        {:error, _} = error ->
+          [error]
+      end
+    end
+
+    defp stream_with_stdin(argv, opts) do
+      case validated_launch(argv, opts, &Forcola.Stream.lines(&1, opts)) do
+        {:error, _} = error -> [error]
+        stream -> halt_on_error(stream, opts[:timeout_ms], opts[:idle_timeout_ms])
+      end
     end
 
     # `Forcola.Stream` rejects `:env_mode`, so a stream removes variables

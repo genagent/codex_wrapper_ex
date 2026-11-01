@@ -1,7 +1,7 @@
 defmodule CodexWrapper.Runner.Port do
   @moduledoc """
-  Default runner: a `/bin/sh` `Port` with stdin redirected from
-  `/dev/null` (Codex CLI hangs if stdin is inherited from the parent),
+  Default runner: a `/bin/sh` `Port` with stdin redirected from a private
+  prompt file, or `/dev/null` when no input is supplied,
   wrapped in a `Task` for timeout enforcement.
 
   ## Cleanup
@@ -52,7 +52,7 @@ defmodule CodexWrapper.Runner.Port do
 
   @behaviour CodexWrapper.Runner
 
-  alias CodexWrapper.Command
+  alias CodexWrapper.{Argv, Command, StdinFile}
 
   # Idle bound between output frames when the caller sets no idle timeout.
   @default_idle_timeout_ms 300_000
@@ -67,17 +67,51 @@ defmodule CodexWrapper.Runner.Port do
 
   @impl true
   def run(binary, args, opts, timeout) do
-    task = Task.async(fn -> run_with_closed_stdin(binary, args, opts) end)
-    effective_timeout = timeout || :infinity
+    opts = Keyword.delete(opts, :env_mode)
 
-    case Task.yield(task, effective_timeout) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {stdout, code}} -> {:ok, {stdout, code}}
-      nil -> {:error, :timeout}
+    with :ok <- Argv.validate(binary, args, opts) do
+      StdinFile.with_file(opts, &run_with_file(binary, args, opts, timeout, &1))
+    end
+  end
+
+  defp run_with_file(binary, args, opts, timeout, path) do
+    shell_args = Command.shell_cmd_args(binary, args, capture_stderr: true, stdin_file: path)
+
+    with :ok <- Argv.validate("/bin/sh", shell_args, opts) do
+      task = Task.async(fn -> run_with_stdin(shell_args, opts) end)
+      effective_timeout = timeout || :infinity
+
+      case Task.yield(task, effective_timeout) || Task.shutdown(task, :brutal_kill) do
+        {:ok, result} -> result
+        nil -> {:error, :timeout}
+      end
     end
   end
 
   @impl true
   def stream_lines(binary, args, opts, timeout) do
+    opts = Keyword.delete(opts, :env_mode)
+
+    Stream.flat_map([nil], fn _ -> validated_stream(binary, args, opts, timeout) end)
+  end
+
+  defp validated_stream(binary, args, opts, timeout) do
+    case Argv.validate(binary, args, opts) do
+      :ok -> StdinFile.stream(opts, &stream_with_stdin(binary, args, opts, timeout, &1))
+      {:error, _} = error -> [error]
+    end
+  end
+
+  defp stream_with_stdin(binary, args, opts, timeout, path) do
+    shell_args = Command.shell_cmd_args(binary, args, stdin_file: path)
+
+    case Argv.validate("/bin/sh", shell_args, opts) do
+      :ok -> open_stream(shell_args, opts, timeout)
+      {:error, _} = error -> [error]
+    end
+  end
+
+  defp open_stream(shell_args, opts, timeout) do
     idle_timeout = Keyword.get(opts, :idle_timeout_ms, @default_idle_timeout_ms)
 
     port_opts =
@@ -85,20 +119,29 @@ defmodule CodexWrapper.Runner.Port do
         :binary,
         :exit_status,
         {:line, @port_line_bytes},
-        {:args, Command.shell_cmd_args(binary, args)}
+        {:args, shell_args}
       ]
       |> maybe_add(:cd, stream_cd(opts))
       |> maybe_add_env(Keyword.get(opts, :env, []))
 
     Stream.resource(
-      fn ->
-        deadline = if timeout, do: System.monotonic_time(:millisecond) + timeout
-        {Port.open({:spawn_executable, "/bin/sh"}, port_opts), :running, deadline}
-      end,
+      fn -> start_port(port_opts, timeout) end,
       fn state -> next_line(state, idle_timeout, timeout) end,
       &close_port/1
     )
   end
+
+  defp start_port(port_opts, timeout) do
+    deadline = if timeout, do: System.monotonic_time(:millisecond) + timeout
+    {Port.open({:spawn_executable, "/bin/sh"}, port_opts), :running, deadline}
+  catch
+    :error, reason -> {:start_error, {:spawn, reason}}
+  end
+
+  defp next_line({:start_error, reason}, _idle_timeout, _timeout),
+    do: {[{:error, reason}], {:start_failed, nil}}
+
+  defp next_line({:start_failed, nil} = state, _idle_timeout, _timeout), do: {:halt, state}
 
   defp next_line({_port, :timed_out, _deadline} = state, _idle_timeout, _timeout),
     do: {:halt, state}
@@ -186,6 +229,8 @@ defmodule CodexWrapper.Runner.Port do
   # The process exited on its own, so the port is already gone. Asking it
   # to close would just block until `@close_timeout_ms` for a `:closed`
   # that can never arrive.
+  defp close_port({status, _}) when status in [:start_error, :start_failed], do: :ok
+
   defp close_port({_port, :exited, _deadline}), do: :ok
 
   defp close_port({port, :failed_after_exit, _deadline}), do: drain_completed_port(port)
@@ -247,7 +292,7 @@ defmodule CodexWrapper.Runner.Port do
     end
   end
 
-  defp run_with_closed_stdin(binary, args, opts) do
+  defp run_with_stdin(shell_args, opts) do
     env = Keyword.get(opts, :env, [])
 
     port_opts =
@@ -255,13 +300,15 @@ defmodule CodexWrapper.Runner.Port do
         :binary,
         :exit_status,
         :stderr_to_stdout,
-        args: Command.shell_cmd_args(binary, args, capture_stderr: true)
+        args: shell_args
       ]
       |> maybe_add(:cd, stream_cd(opts))
       |> maybe_add_env(env)
 
     port = Port.open({:spawn_executable, "/bin/sh"}, port_opts)
-    collect_port_output(port, "")
+    {:ok, collect_port_output(port, "")}
+  catch
+    :error, reason -> {:error, {:spawn, reason}}
   end
 
   defp collect_port_output(port, acc) do

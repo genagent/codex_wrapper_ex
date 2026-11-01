@@ -4,8 +4,8 @@ defmodule CodexWrapper.Command do
 
   Every command knows how to build its argument list and how to
   parse its output. Synchronous execution routes through the configured
-  `CodexWrapper.Runner`; the default runner closes stdin (Codex CLI hangs
-  if stdin is inherited from the parent).
+  `CodexWrapper.Runner`; prompts use stdin by default and commands without
+  input receive EOF instead of inheriting the parent's stdin.
   """
 
   @type args :: [String.t()]
@@ -26,7 +26,7 @@ defmodule CodexWrapper.Command do
   def run(mod, command, config) do
     all_args = CodexWrapper.Config.base_args(config) ++ mod.args(command)
 
-    case CodexWrapper.Runner.run(config, all_args) do
+    case CodexWrapper.Runner.run(config, all_args, stdin_opts(command, [])) do
       {:ok, {stdout, code}} ->
         mod.parse_output(stdout, code)
 
@@ -35,13 +35,31 @@ defmodule CodexWrapper.Command do
     end
   end
 
+  @doc false
+  @spec prompt_arg(map()) :: String.t() | nil
+  def prompt_arg(%{prompt: nil}), do: nil
+  def prompt_arg(%{prompt_input: :stdin}), do: "-"
+  def prompt_arg(%{prompt_input: :argv, prompt: prompt}), do: prompt
+
+  @doc false
+  @spec stdin_opts(map(), keyword()) :: keyword()
+  def stdin_opts(%{prompt: prompt, prompt_input: :stdin}, opts) when is_binary(prompt),
+    do: Keyword.put(opts, :stdin, prompt)
+
+  # A literal dash must not ask the CLI to read an empty inherited stdin.
+  def stdin_opts(%{prompt: "-", prompt_input: :argv}, opts),
+    do: Keyword.put(opts, :stdin, "-")
+
+  def stdin_opts(_command, opts), do: opts
+
   # Seconds the watchdog waits after SIGINT before SIGTERM, and after SIGTERM
   # before SIGKILL. Fixed: the cleanup schedule is not a configuration surface.
   @int_grace_s 2
   @term_grace_s 1
 
   # Build the `:args` list for a `Port.open({:spawn_executable, "/bin/sh"}, ...)`
-  # call that runs `binary` with `args`, redirects its stdin from `/dev/null`,
+  # call that runs `binary` with `args`, redirects stdin from a private prompt
+  # file or `/dev/null`,
   # and cleans it up when the port goes away. Shared by the execute path
   # (`run/3`) and the streaming paths (`Exec.stream/2`, `ExecResume.stream/2`)
   # so the stdin-closing and cleanup mechanism lives in one place.
@@ -93,24 +111,45 @@ defmodule CodexWrapper.Command do
   @doc false
   @spec shell_cmd_args(String.t(), [String.t()], keyword()) :: [String.t()]
   def shell_cmd_args(binary, args, opts \\ []) do
-    target_redirects =
-      if Keyword.get(opts, :capture_stderr, false),
-        do: "</dev/null 3<&- 2>&1",
-        else: "</dev/null 3<&-"
+    path = Keyword.get(opts, :stdin_file)
+    input_redirect = if path, do: "<&4", else: "</dev/null"
 
-    # sh -c consumes the first positional argument as $0. Keep a deliberate
-    # label there so "$@" includes the executable and every argument verbatim.
-    ["-c", supervisor_script(target_redirects), "codex-wrapper", binary | args]
+    target_redirects =
+      input_redirect <>
+        " 3<&- 4<&-" <>
+        if(Keyword.get(opts, :capture_stderr, false), do: " 2>&1", else: "")
+
+    # sh -c consumes the first positional argument as $0. File paths are
+    # separate arguments, never interpolated into executable shell code.
+    prefix = if path, do: [path, Path.dirname(path)], else: []
+
+    ["-c", supervisor_script(target_redirects, not is_nil(path)), "codex-wrapper"] ++
+      prefix ++ [binary | args]
   end
 
-  defp supervisor_script(target_redirects) do
+  defp stdin_setup(false), do: ""
+
+  defp stdin_setup(true) do
+    """
+    stdin_file=$1
+    stdin_directory=$2
+    shift 2
+    exec 4<"$stdin_file" || exit 125
+    /bin/rm -f -- "$stdin_file" || exit 125
+    /bin/rmdir -- "$stdin_directory" || exit 125
+    """
+  end
+
+  defp supervisor_script(target_redirects, stdin?) do
     """
     watcher_ready=0
     trap 'watcher_ready=1' USR1
     supervisor=$$
     exec 3<&0
+    #{stdin_setup(stdin?)}
     "$@" #{target_redirects} &
     t=$!
+    exec 4<&-
     (
       kill -s USR1 "$supervisor" || exit 0
       while read -r _line; do :; done

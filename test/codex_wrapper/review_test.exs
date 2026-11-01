@@ -134,7 +134,7 @@ defmodule CodexWrapper.ReviewTest do
                "gpt-5",
                "--json",
                "--",
-               "focus on correctness"
+               "-"
              ]
     end
 
@@ -238,7 +238,7 @@ defmodule CodexWrapper.ReviewTest do
         |> Review.prompt("the prompt")
         |> Review.args()
 
-      assert List.last(args) == "the prompt"
+      assert List.last(args) == "-"
     end
 
     test "no prompt appended when nil" do
@@ -250,11 +250,11 @@ defmodule CodexWrapper.ReviewTest do
       assert args == ["exec", "review", "--uncommitted"]
     end
 
-    test "leading-hyphen and stdin prompts are positional" do
-      assert Review.new() |> Review.prompt("-x") |> Review.args() ==
+    test "argv mode preserves leading-hyphen and dash positionals" do
+      assert Review.new() |> Review.prompt("-x") |> Review.prompt_input(:argv) |> Review.args() ==
                ["exec", "review", "--", "-x"]
 
-      assert Review.new() |> Review.prompt("-") |> Review.args() ==
+      assert Review.new() |> Review.prompt("-") |> Review.prompt_input(:argv) |> Review.args() ==
                ["exec", "review", "--", "-"]
     end
   end
@@ -363,7 +363,7 @@ defmodule CodexWrapper.ReviewTest do
         |> Review.ignore_rules()
         |> Review.args()
 
-      assert List.last(args) == "focus on correctness"
+      assert List.last(args) == "-"
       assert "--strict-config" in args
       assert "--ignore-rules" in args
     end

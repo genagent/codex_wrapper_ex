@@ -123,7 +123,7 @@ defmodule CodexWrapper.ExecResumeTest do
         |> ExecResume.prompt("continue")
         |> ExecResume.args()
 
-      assert args == ["exec", "resume", "--", "abc-123", "continue"]
+      assert args == ["exec", "resume", "--", "abc-123", "-"]
     end
 
     test "with --last flag" do
@@ -132,7 +132,8 @@ defmodule CodexWrapper.ExecResumeTest do
     end
 
     test "leading-hyphen and stdin prompts follow the session id" do
-      base = ExecResume.new() |> ExecResume.session_id("abc-123")
+      base =
+        ExecResume.new() |> ExecResume.session_id("abc-123") |> ExecResume.prompt_input(:argv)
 
       assert base |> ExecResume.prompt("-x") |> ExecResume.args() ==
                ["exec", "resume", "--", "abc-123", "-x"]
@@ -156,7 +157,7 @@ defmodule CodexWrapper.ExecResumeTest do
                "/tmp/response.json",
                "--",
                "abc-123",
-               "continue"
+               "-"
              ]
     end
 
@@ -182,7 +183,7 @@ defmodule CodexWrapper.ExecResumeTest do
                "--json",
                "--",
                "abc-123",
-               "continue"
+               "-"
              ]
     end
 
@@ -217,7 +218,7 @@ defmodule CodexWrapper.ExecResumeTest do
         |> ExecResume.prompt("the prompt")
         |> ExecResume.args()
 
-      assert Enum.slice(args, -2, 2) == ["sess-1", "the prompt"]
+      assert Enum.slice(args, -2, 2) == ["sess-1", "-"]
     end
 
     test "boolean flags" do
@@ -360,7 +361,7 @@ defmodule CodexWrapper.ExecResumeTest do
         |> ExecResume.ignore_user_config()
         |> ExecResume.args()
 
-      assert List.last(args) == "continue"
+      assert List.last(args) == "-"
       assert Enum.at(args, -2) == "abc-123"
       assert Enum.find_index(args, &(&1 == "--strict-config")) < length(args) - 2
       assert Enum.find_index(args, &(&1 == "--ignore-user-config")) < length(args) - 2

@@ -50,10 +50,11 @@ defmodule CodexWrapper.StreamRoutingTest do
     test "routes through the runner with --json forced" do
       events = "hello" |> Exec.new() |> Exec.stream(config()) |> Enum.to_list()
 
-      assert_received {:stream_lines, "codex", args, _opts, _timeout}
+      assert_received {:stream_lines, "codex", args, opts, _timeout}
       assert "exec" in args
       assert "--json" in args
-      assert "hello" in args
+      assert List.last(args) == "-"
+      assert opts[:stdin] == "hello"
 
       assert [%JsonLineEvent{event_type: "thread.started"}] = events
     end

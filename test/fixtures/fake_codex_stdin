@@ -1,0 +1,47 @@
+#!/usr/bin/perl
+# Reports prompt transport without copying the prompt into output or argv.
+use strict;
+use warnings;
+use Digest::SHA qw(sha256_hex);
+use Encode qw(decode);
+use JSON::PP qw(encode_json);
+use Time::HiRes qw(time sleep);
+
+binmode STDIN;
+my @stdin_stat = stat(STDIN);
+my $input = do { local $/; <STDIN> };
+$input = '' unless defined $input;
+my $report = {
+    type => 'thread.started',
+    thread_id => '019b1e96-6935-7a02-a61e-325504b0b832',
+    argv => [map { decode('UTF-8', $_) } @ARGV],
+    stdin_bytes => length($input),
+    stdin_sha256 => sha256_hex($input),
+    stdin_mode => $stdin_stat[2] & 0777,
+    stdin_links => $stdin_stat[3],
+    pid => $$,
+};
+my $json = encode_json($report);
+my $directory = $ENV{STDIN_PROBE_DIR};
+
+sub record_signal {
+    my ($signal) = @_;
+    open(my $fh, '>>', "$directory/signals") or die "open signals: $!";
+    print $fh "$signal ", time(), "\n";
+    close($fh) or die "close signals: $!";
+}
+
+if (defined $directory) {
+    $SIG{INT} = sub { record_signal('INT') };
+    $SIG{TERM} = sub { record_signal('TERM') };
+    open(my $fh, '>', "$directory/ready.tmp") or die "open ready: $!";
+    print $fh $json;
+    close($fh) or die "close ready: $!";
+    rename("$directory/ready.tmp", "$directory/ready") or die "rename ready: $!";
+}
+
+$| = 1;
+print "$json\n" unless $ENV{STDIN_PROBE_QUIET};
+if (defined $directory) {
+    until (-e "$directory/release") { sleep(0.01) }
+}

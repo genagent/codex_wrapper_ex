@@ -37,7 +37,7 @@ defmodule CodexWrapper.ObservedExecution do
   `{:error, {:observation_unsupported, runner}}`.
   """
 
-  alias CodexWrapper.{Config, Result, Runner, SessionObservation}
+  alias CodexWrapper.{Command, Config, Result, Runner, SessionObservation}
 
   @doc false
   @spec run(module(), struct(), Config.t(), keyword()) :: {:ok, Result.t()} | {:error, term()}
@@ -54,7 +54,8 @@ defmodule CodexWrapper.ObservedExecution do
          {:ok, runner} <- observed_runner(config),
          :ok <- Runner.validate_options(runner, Config.runner_options(config)) do
       args = Config.base_args(config) ++ mod.args(%{command | json: true})
-      collect(runner, config, args, observer)
+      transport_opts = Command.stdin_opts(command, Config.execution_opts(config))
+      collect(runner, config, {args, transport_opts}, observer)
     end
   end
 
@@ -74,10 +75,10 @@ defmodule CodexWrapper.ObservedExecution do
     end
   end
 
-  defp collect(runner, config, args, observer) do
+  defp collect(runner, config, invocation, observer) do
     caller = self()
     reference = make_ref()
-    task = Task.async(fn -> invoke(runner, config, args, {caller, reference}) end)
+    task = Task.async(fn -> invoke(runner, config, invocation, {caller, reference}) end)
     state = %{observer: observer, buffer: "", dropping?: false}
 
     try do
@@ -92,12 +93,12 @@ defmodule CodexWrapper.ObservedExecution do
   # The owned Task contains transport exceptions/throws until the execution
   # caller can reproduce them after cleanup. It must never crash its link
   # incidentally before the caller has drained prior observation messages.
-  defp invoke(runner, config, args, target) do
+  defp invoke(runner, config, {args, opts}, target) do
     {:returned,
      runner.run_observed(
        config.binary,
        args,
-       Config.execution_opts(config),
+       opts,
        Runner.timeout(config),
        target
      )}

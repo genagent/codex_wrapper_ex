@@ -114,6 +114,7 @@ defmodule CodexWrapper do
       observation. Requires an observed runner; see `CodexWrapper.ObservedExecution`.
 
   Exec options (passed to `Exec` builder):
+    * `:prompt_input` - `:stdin` (default) or `:argv`; see `CodexWrapper.Exec.prompt_input/2`
     * `:model` - Model name
     * `:profile` - Named config profile (`--profile`)
     * `:sandbox` - `:read_only`, `:workspace_write`, or `:danger_full_access`
@@ -226,6 +227,7 @@ defmodule CodexWrapper do
 
   Review options (passed to `Review` builder):
     * `:prompt` - Additional review context
+    * `:prompt_input` - `:stdin` (default) or `:argv`; a literal `-` always uses stdin
     * `:uncommitted` - Review uncommitted changes (boolean)
     * `:base` - Compare against base branch
     * `:commit` - Review a specific commit

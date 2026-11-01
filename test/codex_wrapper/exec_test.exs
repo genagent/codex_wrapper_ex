@@ -11,6 +11,7 @@ defmodule CodexWrapper.ExecTest do
 
     test "defaults" do
       exec = Exec.new("prompt")
+      assert exec.prompt_input == :stdin
       assert exec.model == nil
       assert exec.profile == nil
       assert exec.sandbox == nil
@@ -145,12 +146,12 @@ defmodule CodexWrapper.ExecTest do
   describe "args/1" do
     test "minimal args" do
       args = Exec.new("fix the test") |> Exec.args()
-      assert args == ["exec", "--", "fix the test"]
+      assert args == ["exec", "--", "-"]
     end
 
-    test "leading-hyphen and stdin prompts are positional" do
-      assert Exec.new("-x") |> Exec.args() == ["exec", "--", "-x"]
-      assert Exec.new("-") |> Exec.args() == ["exec", "--", "-"]
+    test "argv mode preserves leading-hyphen and dash positionals" do
+      assert Exec.new("-x") |> Exec.prompt_input(:argv) |> Exec.args() == ["exec", "--", "-x"]
+      assert Exec.new("-") |> Exec.prompt_input(:argv) |> Exec.args() == ["exec", "--", "-"]
     end
 
     test "full args match Rust ordering" do
@@ -176,7 +177,7 @@ defmodule CodexWrapper.ExecTest do
                "--ephemeral",
                "--json",
                "--",
-               "fix the test"
+               "-"
              ]
     end
 
@@ -187,7 +188,7 @@ defmodule CodexWrapper.ExecTest do
         |> Exec.profile("fast")
         |> Exec.args()
 
-      assert args == ["exec", "--model", "o3", "--profile", "fast", "--", "prompt"]
+      assert args == ["exec", "--model", "o3", "--profile", "fast", "--", "-"]
     end
 
     test "profile is omitted when unset" do
@@ -239,7 +240,7 @@ defmodule CodexWrapper.ExecTest do
 
     test "search/1 emits the web_search config key set to live" do
       args = Exec.new("p") |> Exec.search() |> Exec.args()
-      assert args == ["exec", "-c", ~s(web_search="live"), "--", "p"]
+      assert args == ["exec", "-c", ~s(web_search="live"), "--", "-"]
     end
 
     test "search/2 emits each web search mode" do
@@ -280,13 +281,13 @@ defmodule CodexWrapper.ExecTest do
                "-c",
                ~s(web_search="live"),
                "--",
-               "p"
+               "-"
              ]
     end
 
     test "an explicit web_search config override is left alone" do
       args = Exec.new("p") |> Exec.config(~s(web_search="cached")) |> Exec.args()
-      assert args == ["exec", "-c", ~s(web_search="cached"), "--", "p"]
+      assert args == ["exec", "-c", ~s(web_search="cached"), "--", "-"]
     end
 
     test "sandbox modes" do
@@ -338,7 +339,7 @@ defmodule CodexWrapper.ExecTest do
                "-c",
                ~s(approval_policy="never"),
                "--",
-               "p"
+               "-"
              ]
     end
 
@@ -348,7 +349,7 @@ defmodule CodexWrapper.ExecTest do
         |> Exec.config(~s(approval_policy="untrusted"))
         |> Exec.args()
 
-      assert args == ["exec", "-c", ~s(approval_policy="untrusted"), "--", "p"]
+      assert args == ["exec", "-c", ~s(approval_policy="untrusted"), "--", "-"]
     end
 
     test "prompt is always last" do
@@ -358,7 +359,7 @@ defmodule CodexWrapper.ExecTest do
         |> Exec.json()
         |> Exec.args()
 
-      assert List.last(args) == "the prompt"
+      assert List.last(args) == "-"
     end
   end
 

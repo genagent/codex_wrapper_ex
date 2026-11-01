@@ -56,6 +56,9 @@ defmodule CodexWrapper.Session do
     * `:sandbox` and `:approval_policy` are emitted on resumed turns as
       `-c sandbox_mode="..."` and `-c approval_policy="..."`.
 
+  Prompts use stdin by default. `:prompt_input` can be set for the session
+  or overridden on any `send/3` or `stream/3` call.
+
   An unknown option, or a value of the wrong type, raises `ArgumentError`.
   """
   @spec new(Config.t(), keyword()) :: t()

@@ -33,6 +33,7 @@ defmodule CodexWrapper.ExecResume do
   @type t :: %__MODULE__{
           session_id: String.t() | nil,
           prompt: String.t() | nil,
+          prompt_input: :stdin | :argv,
           last: boolean(),
           all: boolean(),
           model: String.t() | nil,
@@ -65,6 +66,7 @@ defmodule CodexWrapper.ExecResume do
     :approval_policy,
     last: false,
     all: false,
+    prompt_input: :stdin,
     full_auto: false,
     dangerously_bypass_approvals_and_sandbox: false,
     dangerously_bypass_hook_trust: false,
@@ -89,6 +91,19 @@ defmodule CodexWrapper.ExecResume do
   def new, do: %__MODULE__{}
 
   # --- Builder functions ---
+
+  @doc """
+  Select how the prompt reaches the CLI: `:stdin` (default) or `:argv`.
+
+  Stdin mode passes `-` as the prompt positional and sends the prompt bytes
+  through a private temporary file that is unlinked before codex runs.
+  Argv mode retains the positional prompt and exposes it in the process table.
+  A prompt of exactly `-` is always sent literally through stdin, including
+  in argv mode.
+  """
+  @spec prompt_input(t(), :stdin | :argv) :: t()
+  def prompt_input(%__MODULE__{} = command, mode) when mode in [:stdin, :argv],
+    do: %{command | prompt_input: mode}
 
   @doc "Set the session ID to resume."
   @spec session_id(t(), String.t()) :: t()
@@ -305,7 +320,12 @@ defmodule CodexWrapper.ExecResume do
         args = Config.base_args(config) ++ args(exec)
 
         config
-        |> Runner.stream_lines(config.binary, args, Config.stream_opts(config), config.timeout)
+        |> Runner.stream_lines(
+          config.binary,
+          args,
+          Command.stdin_opts(exec, Config.stream_opts(config)),
+          config.timeout
+        )
         |> JsonLineEvent.parse_stream()
       end
     )
@@ -336,7 +356,7 @@ defmodule CodexWrapper.ExecResume do
     |> add_bool("--json", e.json)
     |> add_opt("--output-schema", e.output_schema)
     |> add_opt("--output-last-message", e.output_last_message)
-    |> add_positionals([e.session_id, e.prompt])
+    |> add_positionals([e.session_id, Command.prompt_arg(e)])
   end
 
   @impl Command

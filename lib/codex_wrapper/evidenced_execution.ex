@@ -1,6 +1,6 @@
 defmodule CodexWrapper.EvidencedExecution do
   @moduledoc false
-  alias CodexWrapper.{Config, ExecutionObservation, Result, Runner, SessionObservation}
+  alias CodexWrapper.{Command, Config, ExecutionObservation, Result, Runner, SessionObservation}
 
   @default_output 1_048_576
   @default_timeout 300_000
@@ -9,8 +9,8 @@ defmodule CodexWrapper.EvidencedExecution do
   def run(mod, command, config, opts) do
     with {:ok, execution} <- observer(opts[:execution_observer], :execution) do
       case prepare(mod, command, config, opts, execution) do
-        {:ok, runner, args, session} ->
-          collect(runner, config, args, session, execution)
+        {:ok, runner, invocation, session} ->
+          collect(runner, config, invocation, session, execution)
 
         {:error, _} = error ->
           notify(execution, %ExecutionObservation{outcome: error, termination: :pre_spawn})
@@ -43,7 +43,8 @@ defmodule CodexWrapper.EvidencedExecution do
         do: raise(ArgumentError, "evidenced execution requires a finite positive timeout")
 
       args = Config.base_args(config) ++ mod.args(%{command | json: true})
-      {:ok, runner, args, session}
+      transport_opts = Command.stdin_opts(command, Config.execution_opts(config))
+      {:ok, runner, {args, transport_opts}, session}
     end
   catch
     kind, reason ->
@@ -81,10 +82,9 @@ defmodule CodexWrapper.EvidencedExecution do
       else: {:ok, nil}
   end
 
-  defp collect(runner, config, args, session, execution) do
+  defp collect(runner, config, {args, opts}, session, execution) do
     owner = self()
     ref = make_ref()
-    opts = Config.execution_opts(config)
     max_bytes = Keyword.get(opts, :max_output_bytes, @default_output)
     wall = Runner.timeout(config) || Keyword.get(opts, :timeout_ms, @default_timeout)
 
