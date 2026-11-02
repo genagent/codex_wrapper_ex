@@ -15,6 +15,24 @@
 
 * Port startup failures now return `{:error, {:spawn, reason}}` instead of raising. Streaming consumers receive a `CodexWrapper.StreamError` item.
 
+## [0.10.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.9.0...v0.10.0) (2026-11-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **env:** Child processes launched inside an Elixir release, when RELEASE_ROOT is set, now scrub RELEASE_*, BINDIR, ROOTDIR, and release PATH entries by default, as introduced in #170. Set release_env: :inherit to opt out. Custom runners must honour {name, false} entries in opts[:env] by removing those variables from the inherited environment on every implemented execution callback.
+
+### Features
+
+* add typed turn results and session usage totals ([#171](https://github.com/genagent/codex_wrapper_ex/issues/171)) ([508ebca](https://github.com/genagent/codex_wrapper_ex/commit/508ebca46b7af3620db0399a367850a1244574de))
+* **env:** scrub release variables from child processes ([#170](https://github.com/genagent/codex_wrapper_ex/issues/170)) ([590ef0b](https://github.com/genagent/codex_wrapper_ex/commit/590ef0bffa3795ed47b6bac1f78967cc9320861c))
+
+
+### Bug Fixes
+
+* cache session usage and clarify turn field scopes ([#173](https://github.com/genagent/codex_wrapper_ex/issues/173)) ([49273c4](https://github.com/genagent/codex_wrapper_ex/commit/49273c43fe79d3707abeeccb819432814250ddfa))
+* **env:** route release_env through IEx chat and resume ([#174](https://github.com/genagent/codex_wrapper_ex/issues/174)) ([e40ebed](https://github.com/genagent/codex_wrapper_ex/commit/e40ebede98a3c22408ba15b12d6c14f9db824865))
+
 ## [0.9.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.8.1...v0.9.0) (2026-11-01)
 
 
