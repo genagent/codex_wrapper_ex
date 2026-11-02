@@ -109,6 +109,55 @@ defmodule CodexWrapper.TurnTest do
     assert Turn.from_result(result(events ++ [event("turn.started")])).final_message == nil
   end
 
+  test "a new turn clears its message and usage but retains the stream's reported outcome" do
+    usage = %{"input_tokens" => 12, "output_tokens" => 3}
+    error = %{"message" => "earlier failure"}
+
+    for {outcome, status, native_error} <- [
+          {event("turn.completed", %{"usage" => usage}), :completed, nil},
+          {event("turn.failed", %{"error" => error, "usage" => usage}), :failed, error}
+        ] do
+      events = [
+        event("thread.started", %{"thread_id" => "native-thread"}),
+        event("turn.started"),
+        message("earlier answer"),
+        outcome,
+        event("turn.started")
+      ]
+
+      turn = Turn.from_result(result(events))
+      assert turn.status == status
+      assert turn.error == native_error
+      assert turn.terminal_event.data == outcome
+      assert turn.final_message == nil
+      assert turn.usage == nil
+      assert turn.thread_id == "native-thread"
+      assert turn.events == JsonLineEvent.parse_lines(result(events).stdout)
+
+      failed_process = Turn.from_result(result(events, 7))
+      assert failed_process.status == :failed
+      assert failed_process.exit_code == 7
+      assert failed_process.terminal_event == turn.terminal_event
+      assert failed_process.error == native_error
+    end
+  end
+
+  test "a new turn retains a preceding top-level error until a terminal supersedes it" do
+    error = event("error", %{"message" => "earlier stream failure"})
+    events = [event("turn.completed"), error, event("turn.started")]
+    turn = Turn.from_result(result(events))
+
+    assert turn.status == :failed
+    assert turn.error == error
+    assert turn.terminal_event.event_type == "turn.completed"
+    assert turn.final_message == nil
+    assert turn.usage == nil
+
+    recovered = Turn.from_result(result(events ++ [event("turn.completed")]))
+    assert recovered.status == :completed
+    assert recovered.error == nil
+  end
+
   test "missing turn.started is allowed, and malformed final message does not reuse earlier text" do
     assert Turn.from_result(result([message("hello")])).final_message == "hello"
 

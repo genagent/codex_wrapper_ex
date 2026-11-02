@@ -162,7 +162,8 @@ session exposes the typed JSON turn as `session.last_turn` or
 Usage totals sum reported nonnegative integers from recorded turns. A field
 is `nil` if it was never reported; the whole total is `nil` if no recorded
 turn included usage. Nonzero exits leave the session unchanged and do not
-contribute to usage totals.
+contribute to usage totals. Each recorded send updates a running total;
+reading it takes constant time and does not parse the retained stdout again.
 
 Session options are the exec options in the table under
 [Exec options](#exec-options) and apply to every turn. Resumed turns run
@@ -199,6 +200,12 @@ process exit makes the projection `:failed`, including after a completion
 event. `CodexWrapper.exec/2` and `CodexWrapper.review/1` still return
 `{:ok, %Result{success: false}}` for a nonzero exit; runner errors return
 `{:error, reason}`.
+
+Status, error, and terminal evidence cover the entire event stream. A new
+`turn.started` resets only the final message and usage; it does not erase an
+earlier reported outcome. For example, a completed turn followed by a new
+start still has `status: :completed`, but its message and usage are `nil`
+until the new turn supplies them. See `CodexWrapper.Turn` for each field's scope.
 
 Usage has the keys `:input_tokens`, `:cached_input_tokens`,
 `:cache_write_input_tokens`, `:output_tokens` and `:reasoning_output_tokens`.

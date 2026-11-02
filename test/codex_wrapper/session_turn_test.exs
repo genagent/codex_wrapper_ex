@@ -157,7 +157,9 @@ defmodule CodexWrapper.SessionTurnTest do
   end
 
   describe "typed session server access" do
-    test "reports usage and preserves the previous turn when a later call fails", %{tmp_dir: dir} do
+    test "preserves usage and the previous turn on exit and thread mismatch failures", %{
+      tmp_dir: dir
+    } do
       lines = [
         started(@uuid),
         ~s({"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":0}})
@@ -177,6 +179,48 @@ defmodule CodexWrapper.SessionTurnTest do
       assert SessionServer.total_usage(pid) == turn.usage
       assert SessionServer.history(pid) == [result]
       assert SessionServer.turn_count(pid) == 1
+
+      mismatched_lines = [
+        started(@other),
+        ~s({"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":9}})
+      ]
+
+      fake(dir, mismatched_lines, nil, 0)
+
+      assert {:error, {:thread_mismatch, @uuid, @other, %Result{}}} =
+               SessionServer.send_message(pid, "third")
+
+      assert SessionServer.last_turn(pid) == turn
+      assert SessionServer.total_usage(pid) == turn.usage
+      assert SessionServer.history(pid) == [result]
+      assert SessionServer.turn_count(pid) == 1
+    end
+
+    test "repeated usage reads do not replay retained raw output", %{tmp_dir: dir} do
+      lines = [
+        started(@uuid),
+        ~s({"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":0}})
+      ]
+
+      config = fake(dir, lines, nil, 0)
+      {:ok, pid} = SessionServer.start_link(config: config)
+      assert {:ok, %Result{}} = SessionServer.send_message(pid, "first")
+      assert {:ok, %Result{}} = SessionServer.send_message(pid, "second")
+      expected = SessionServer.total_usage(pid)
+      assert expected.input_tokens == 16
+      assert expected.output_tokens == 0
+
+      # Preserve the recorded totals while redacting raw payloads. Re-parsing
+      # these Results instead of reading the aggregate would return nil.
+      :sys.replace_state(pid, fn session ->
+        history =
+          Enum.map(session.history, fn %Result{} = result -> %{result | stdout: "redacted"} end)
+
+        %{session | history: history}
+      end)
+
+      for _ <- 1..3, do: assert(SessionServer.total_usage(pid) == expected)
+      assert Enum.all?(SessionServer.history(pid), &(&1.stdout == "redacted"))
     end
   end
 
