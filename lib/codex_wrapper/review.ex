@@ -34,9 +34,12 @@ defmodule CodexWrapper.Review do
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Runner, Telemetry}
+  alias CodexWrapper.{Command, Config, ExecLevel, JsonLineEvent, Result, Runner, Telemetry}
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
+  @type color_mode :: :always | :never | :auto
+  @type web_search_mode :: :cached | :indexed | :live | :disabled
+  @type approval_policy :: :untrusted | :on_request | :never
 
   @type t :: %__MODULE__{
           prompt: String.t() | nil,
@@ -58,6 +61,10 @@ defmodule CodexWrapper.Review do
           config_overrides: [String.t()],
           enabled_features: [String.t()],
           disabled_features: [String.t()],
+          exec_level: struct(),
+          search: web_search_mode() | nil,
+          thread_source: String.t() | nil,
+          approval_policy: approval_policy() | nil,
           strict_config: boolean(),
           ignore_user_config: boolean(),
           ignore_rules: boolean()
@@ -72,6 +79,9 @@ defmodule CodexWrapper.Review do
     :output_schema,
     :output_last_message,
     :sandbox,
+    :search,
+    :thread_source,
+    :approval_policy,
     uncommitted: false,
     prompt_input: :stdin,
     full_auto: false,
@@ -83,6 +93,7 @@ defmodule CodexWrapper.Review do
     config_overrides: [],
     enabled_features: [],
     disabled_features: [],
+    exec_level: %ExecLevel{},
     strict_config: false,
     ignore_user_config: false,
     ignore_rules: false
@@ -230,6 +241,106 @@ defmodule CodexWrapper.Review do
   def disable(%__MODULE__{} = r, feature),
     do: %{r | disabled_features: r.disabled_features ++ [feature]}
 
+  # --- Exec-level options (emitted before `review`) ---
+
+  @doc """
+  Select a config profile (`--profile`).
+
+  Emitted before the subcommand, as `codex exec --profile <name> review`:
+  `codex exec` reads it there and applies it to the subcommand, while
+  `codex exec review` rejects it after the subcommand. The CLI layers
+  `$CODEX_HOME/<name>.config.toml` on top of the base `config.toml`; a
+  missing profile file is not an error.
+  """
+  @spec profile(t(), String.t()) :: t()
+  def profile(%__MODULE__{} = r, name) when is_binary(name),
+    do: %{r | exec_level: %{r.exec_level | profile: name}}
+
+  @doc """
+  Make an additional directory writable (`--add-dir`, before the subcommand).
+
+  This widens the sandbox: codex may write to `dir` as well as the
+  workspace. See the README section on git commits.
+  """
+  @spec add_dir(t(), String.t()) :: t()
+  def add_dir(%__MODULE__{} = r, dir) when is_binary(dir),
+    do: %{r | exec_level: %{r.exec_level | add_dirs: r.exec_level.add_dirs ++ [dir]}}
+
+  @doc "Set the agent's working root (`--cd`, before the subcommand)."
+  @spec cd(t(), String.t()) :: t()
+  def cd(%__MODULE__{} = r, dir) when is_binary(dir),
+    do: %{r | exec_level: %{r.exec_level | cd: dir}}
+
+  @doc "Use an open-source provider (`--oss`, before the subcommand)."
+  @spec oss(t()) :: t()
+  def oss(%__MODULE__{} = r), do: %{r | exec_level: %{r.exec_level | oss: true}}
+
+  @doc """
+  Select which local provider to use, `"lmstudio"` or `"ollama"`
+  (`--local-provider`, before the subcommand).
+  """
+  @spec local_provider(t(), String.t()) :: t()
+  def local_provider(%__MODULE__{} = r, provider) when is_binary(provider),
+    do: %{r | exec_level: %{r.exec_level | local_provider: provider}}
+
+  @doc "Set the color mode: `:always`, `:never`, or `:auto` (`--color`, before the subcommand)."
+  @spec color(t(), color_mode()) :: t()
+  def color(%__MODULE__{} = r, mode) when mode in [:always, :never, :auto],
+    do: %{r | exec_level: %{r.exec_level | color: mode}}
+
+  @doc """
+  Route approval requests through automatic review (`--approve-for-me`,
+  before the subcommand).
+
+  Codex reviews each approval request itself, using the workspace-write
+  sandbox.
+  """
+  @spec approve_for_me(t()) :: t()
+  def approve_for_me(%__MODULE__{} = r),
+    do: %{r | exec_level: %{r.exec_level | approve_for_me: true}}
+
+  @doc """
+  Set the approval policy: `:untrusted`, `:on_request`, or `:never`.
+
+  Emitted as the `-c approval_policy="<value>"` config override, as
+  `CodexWrapper.Exec` does. `:on_failure` is no longer a valid policy;
+  passing it raises.
+  """
+  @spec approval_policy(t(), approval_policy()) :: t()
+  def approval_policy(%__MODULE__{}, :on_failure) do
+    raise ArgumentError, """
+    :on_failure is no longer a valid approval policy.
+
+    The Codex CLI dropped it along with the --ask-for-approval flag.
+    Valid policies are :untrusted, :on_request, and :never.
+    """
+  end
+
+  def approval_policy(%__MODULE__{} = r, policy) when policy in [:untrusted, :on_request, :never],
+    do: %{r | approval_policy: policy}
+
+  @doc "Enable live web search. Shorthand for `search(r, :live)`."
+  @spec search(t()) :: t()
+  def search(%__MODULE__{} = r), do: search(r, :live)
+
+  @doc """
+  Set the web search mode: `:cached`, `:indexed`, `:live`, or `:disabled`.
+
+  Emitted as the `-c web_search="<mode>"` config override, as
+  `CodexWrapper.Exec` does.
+  """
+  @spec search(t(), web_search_mode()) :: t()
+  def search(%__MODULE__{} = r, mode) when mode in [:cached, :indexed, :live, :disabled],
+    do: %{r | search: mode}
+
+  @doc """
+  Set the source classification for a newly created or forked thread
+  (`--thread-source`). Requires codex-cli 0.157.1 or later.
+  """
+  @spec thread_source(t(), String.t()) :: t()
+  def thread_source(%__MODULE__{} = r, source) when is_binary(source),
+    do: %{r | thread_source: source}
+
   # --- Execution ---
 
   @doc """
@@ -309,7 +420,7 @@ defmodule CodexWrapper.Review do
 
   @impl Command
   def args(%__MODULE__{} = r) do
-    ["exec", "review"]
+    ExecLevel.args("review", r.exec_level)
     |> add_list("-c", config_overrides(r))
     |> add_list("--enable", r.enabled_features)
     |> add_list("--disable", r.disabled_features)
@@ -326,6 +437,7 @@ defmodule CodexWrapper.Review do
     |> add_bool("--dangerously-bypass-hook-trust", r.dangerously_bypass_hook_trust)
     |> add_bool("--skip-git-repo-check", r.skip_git_repo_check)
     |> add_bool("--ephemeral", r.ephemeral)
+    |> ExecLevel.subcommand_args(r)
     |> add_bool("--ignore-user-config", r.ignore_user_config)
     |> add_bool("--ignore-rules", r.ignore_rules)
     |> add_opt("--output-schema", r.output_schema)
@@ -369,7 +481,7 @@ defmodule CodexWrapper.Review do
   # User-supplied overrides come first, so an explicit `sandbox/2` call
   # wins on a last-wins CLI.
   defp config_overrides(%__MODULE__{} = r) do
-    r.config_overrides ++ sandbox_override(r)
+    r.config_overrides ++ ExecLevel.config_overrides(r) ++ sandbox_override(r)
   end
 
   defp sandbox_override(%__MODULE__{} = r) do

@@ -148,8 +148,8 @@ defmodule CodexWrapper.OptionsTest do
     end
 
     test "raises on an unknown option" do
-      assert_raise ArgumentError, ~r/unknown option :profile/, fn ->
-        Options.review(profile: "fast")
+      assert_raise ArgumentError, ~r/unknown option :worktree/, fn ->
+        Options.review(worktree: true)
       end
     end
   end
@@ -251,13 +251,12 @@ defmodule CodexWrapper.OptionsTest do
       assert turn1 =~ "[--profile] [fast]"
       assert turn1 =~ "[--sandbox] [read-only]"
 
-      assert turn2 =~ "[exec] [resume]"
+      assert turn2 =~ "[exec] [--profile] [fast] [resume]"
       assert turn2 =~ ~s([-c] [approval_policy="never"] [-c] [sandbox_mode="read-only"])
       assert turn2 =~ "[--ignore-user-config]"
       assert turn2 =~ "[--strict-config]"
       assert turn2 =~ "[--ignore-rules]"
       assert turn2 =~ "[--model] [m1]"
-      refute turn2 =~ "--profile"
       assert turn2 =~ "[--] [thread-A] [-]"
     end
 
@@ -275,7 +274,7 @@ defmodule CodexWrapper.OptionsTest do
       session = Session.resume(ctx.config, "thread-A")
 
       assert_raise ArgumentError, ~r/first turn of a session only/, fn ->
-        Session.send(session, "next", profile: "fast")
+        Session.send(session, "next", worktree: true)
       end
     end
 
@@ -285,7 +284,7 @@ defmodule CodexWrapper.OptionsTest do
       end
 
       assert_raise ArgumentError, ~r/first turn of a session only/, fn ->
-        Session.resume(ctx.config, "thread-A", profile: "fast")
+        Session.resume(ctx.config, "thread-A", thread_source: "ci")
       end
     end
   end

@@ -27,9 +27,14 @@ defmodule CodexWrapper.ExecFork do
 
   Verified against codex-cli 0.149.0. `codex exec fork` accepts the
   `codex exec resume` flag set without `--last` and `--all`, plus
-  `--output-schema`. It rejects `--sandbox`, `--profile`, and
-  `--full-auto`, so `sandbox/2` and `full_auto/1` emit the config
-  override `-c sandbox_mode="<mode>"` the same way `ExecResume` does.
+  `--output-schema`. It rejects `--sandbox` and `--full-auto`, so
+  `sandbox/2` and `full_auto/1` emit the config override
+  `-c sandbox_mode="<mode>"` the same way `ExecResume` does.
+
+  `profile/2`, `add_dir/2`, `cd/2`, `oss/1`, `local_provider/2`, `color/2`
+  and `approve_for_me/1` are emitted before `fork`
+  (`codex exec --profile <name> fork ...`), where `codex exec` reads them
+  and applies them to the fork (codex-cli 0.165.0).
 
   ## CLIs without `exec fork`
 
@@ -48,6 +53,7 @@ defmodule CodexWrapper.ExecFork do
   alias CodexWrapper.{
     Command,
     Config,
+    ExecLevel,
     JsonLineEvent,
     Result,
     Runner,
@@ -57,6 +63,10 @@ defmodule CodexWrapper.ExecFork do
   }
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
+  @type color_mode :: :always | :never | :auto
+  @type web_search_mode :: :cached | :indexed | :live | :disabled
+  @type approval_policy :: :untrusted | :on_request | :never
+  @type cyber_access_program :: :standard | :daybreak_blue | :daybreak_red
 
   @type t :: %__MODULE__{
           session_id: String.t(),
@@ -76,6 +86,12 @@ defmodule CodexWrapper.ExecFork do
           config_overrides: [String.t()],
           enabled_features: [String.t()],
           disabled_features: [String.t()],
+          exec_level: struct(),
+          search: web_search_mode() | nil,
+          thread_source: String.t() | nil,
+          approval_policy: approval_policy() | nil,
+          cyber_access_program: cyber_access_program() | nil,
+          worktree: boolean(),
           strict_config: boolean(),
           ignore_user_config: boolean(),
           ignore_rules: boolean()
@@ -109,6 +125,10 @@ defmodule CodexWrapper.ExecFork do
     :output_schema,
     :output_last_message,
     :sandbox,
+    :search,
+    :thread_source,
+    :approval_policy,
+    :cyber_access_program,
     prompt_input: :stdin,
     full_auto: false,
     dangerously_bypass_approvals_and_sandbox: false,
@@ -120,6 +140,8 @@ defmodule CodexWrapper.ExecFork do
     config_overrides: [],
     enabled_features: [],
     disabled_features: [],
+    worktree: false,
+    exec_level: %ExecLevel{},
     strict_config: false,
     ignore_user_config: false,
     ignore_rules: false
@@ -294,6 +316,129 @@ defmodule CodexWrapper.ExecFork do
       _ -> false
     end
   end
+
+  # --- Exec-level options (emitted before `fork`) ---
+
+  @doc """
+  Select a config profile (`--profile`).
+
+  Emitted before the subcommand, as `codex exec --profile <name> fork`:
+  `codex exec` reads it there and applies it to the subcommand, while
+  `codex exec fork` rejects it after the subcommand. The CLI layers
+  `$CODEX_HOME/<name>.config.toml` on top of the base `config.toml`; a
+  missing profile file is not an error.
+  """
+  @spec profile(t(), String.t()) :: t()
+  def profile(%__MODULE__{} = e, name) when is_binary(name),
+    do: %{e | exec_level: %{e.exec_level | profile: name}}
+
+  @doc """
+  Make an additional directory writable (`--add-dir`, before the subcommand).
+
+  This widens the sandbox: codex may write to `dir` as well as the
+  workspace. See the README section on git commits.
+  """
+  @spec add_dir(t(), String.t()) :: t()
+  def add_dir(%__MODULE__{} = e, dir) when is_binary(dir),
+    do: %{e | exec_level: %{e.exec_level | add_dirs: e.exec_level.add_dirs ++ [dir]}}
+
+  @doc "Set the agent's working root (`--cd`, before the subcommand)."
+  @spec cd(t(), String.t()) :: t()
+  def cd(%__MODULE__{} = e, dir) when is_binary(dir),
+    do: %{e | exec_level: %{e.exec_level | cd: dir}}
+
+  @doc "Use an open-source provider (`--oss`, before the subcommand)."
+  @spec oss(t()) :: t()
+  def oss(%__MODULE__{} = e), do: %{e | exec_level: %{e.exec_level | oss: true}}
+
+  @doc """
+  Select which local provider to use, `"lmstudio"` or `"ollama"`
+  (`--local-provider`, before the subcommand).
+  """
+  @spec local_provider(t(), String.t()) :: t()
+  def local_provider(%__MODULE__{} = e, provider) when is_binary(provider),
+    do: %{e | exec_level: %{e.exec_level | local_provider: provider}}
+
+  @doc "Set the color mode: `:always`, `:never`, or `:auto` (`--color`, before the subcommand)."
+  @spec color(t(), color_mode()) :: t()
+  def color(%__MODULE__{} = e, mode) when mode in [:always, :never, :auto],
+    do: %{e | exec_level: %{e.exec_level | color: mode}}
+
+  @doc """
+  Route approval requests through automatic review (`--approve-for-me`,
+  before the subcommand).
+
+  Codex reviews each approval request itself, using the workspace-write
+  sandbox.
+  """
+  @spec approve_for_me(t()) :: t()
+  def approve_for_me(%__MODULE__{} = e),
+    do: %{e | exec_level: %{e.exec_level | approve_for_me: true}}
+
+  @doc """
+  Set the approval policy: `:untrusted`, `:on_request`, or `:never`.
+
+  Emitted as the `-c approval_policy="<value>"` config override, as
+  `CodexWrapper.Exec` does. `:on_failure` is no longer a valid policy;
+  passing it raises.
+  """
+  @spec approval_policy(t(), approval_policy()) :: t()
+  def approval_policy(%__MODULE__{}, :on_failure) do
+    raise ArgumentError, """
+    :on_failure is no longer a valid approval policy.
+
+    The Codex CLI dropped it along with the --ask-for-approval flag.
+    Valid policies are :untrusted, :on_request, and :never.
+    """
+  end
+
+  def approval_policy(%__MODULE__{} = e, policy) when policy in [:untrusted, :on_request, :never],
+    do: %{e | approval_policy: policy}
+
+  @doc "Enable live web search. Shorthand for `search(e, :live)`."
+  @spec search(t()) :: t()
+  def search(%__MODULE__{} = e), do: search(e, :live)
+
+  @doc """
+  Set the web search mode: `:cached`, `:indexed`, `:live`, or `:disabled`.
+
+  Emitted as the `-c web_search="<mode>"` config override, as
+  `CodexWrapper.Exec` does.
+  """
+  @spec search(t(), web_search_mode()) :: t()
+  def search(%__MODULE__{} = e, mode) when mode in [:cached, :indexed, :live, :disabled],
+    do: %{e | search: mode}
+
+  @doc """
+  Set the source classification for a newly created or forked thread
+  (`--thread-source`). Requires codex-cli 0.157.1 or later.
+  """
+  @spec thread_source(t(), String.t()) :: t()
+  def thread_source(%__MODULE__{} = e, source) when is_binary(source),
+    do: %{e | thread_source: source}
+
+  @doc """
+  Request an experimental cyber access program for this turn
+  (`--cyber-access-program`): `:standard`, `:daybreak_blue` or
+  `:daybreak_red`.
+
+  OpenAI provider only. Requires codex-cli 0.162.0 or later.
+  """
+  @spec cyber_access_program(t(), cyber_access_program()) :: t()
+  def cyber_access_program(%__MODULE__{} = e, program)
+      when program in [:standard, :daybreak_blue, :daybreak_red],
+      do: %{e | cyber_access_program: program}
+
+  @doc """
+  Run the fork in a new codex-managed git worktree (`--worktree`).
+
+  The CLI rejects it together with `ephemeral/1`; building such a command
+  raises `ArgumentError`. `codex exec resume` and `codex exec review`
+  reject `--worktree`, so only `ExecFork` has this builder. Requires
+  codex-cli 0.157.1 or later.
+  """
+  @spec worktree(t()) :: t()
+  def worktree(%__MODULE__{} = e), do: %{e | worktree: true}
 
   # --- Execution ---
 
@@ -519,7 +664,9 @@ defmodule CodexWrapper.ExecFork do
 
   @impl Command
   def args(%__MODULE__{} = e) do
-    ["exec", "fork"]
+    validate_combinations!(e)
+
+    ExecLevel.args("fork", e.exec_level)
     |> add_list("-c", config_overrides(e))
     |> add_list("--enable", e.enabled_features)
     |> add_list("--disable", e.disabled_features)
@@ -533,6 +680,7 @@ defmodule CodexWrapper.ExecFork do
     |> add_bool("--dangerously-bypass-hook-trust", e.dangerously_bypass_hook_trust)
     |> add_bool("--skip-git-repo-check", e.skip_git_repo_check)
     |> add_bool("--ephemeral", e.ephemeral)
+    |> ExecLevel.subcommand_args(e)
     |> add_bool("--ignore-user-config", e.ignore_user_config)
     |> add_bool("--ignore-rules", e.ignore_rules)
     |> add_opt("--output-schema", e.output_schema)
@@ -556,11 +704,19 @@ defmodule CodexWrapper.ExecFork do
   defp add_list(args, _flag, []), do: args
   defp add_list(args, flag, values), do: args ++ Enum.flat_map(values, &[flag, &1])
 
+  # codex-cli 0.165.0 rejects this at argument parsing. Failing here keeps
+  # the error before spawning and names the builder calls.
+  defp validate_combinations!(%__MODULE__{worktree: true, ephemeral: true}) do
+    raise ArgumentError, "worktree/1 cannot be combined with ephemeral/1"
+  end
+
+  defp validate_combinations!(_e), do: :ok
+
   # `codex exec fork` rejects `--sandbox`; `sandbox_mode` is the config key
   # it accepts. User-supplied overrides come first, so the builder's
   # sandbox wins on a last-wins CLI, matching ExecResume.
   defp config_overrides(%__MODULE__{} = e) do
-    e.config_overrides ++ sandbox_override(e)
+    e.config_overrides ++ ExecLevel.config_overrides(e) ++ sandbox_override(e)
   end
 
   defp sandbox_override(%__MODULE__{} = e) do

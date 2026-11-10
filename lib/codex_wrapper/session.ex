@@ -58,11 +58,13 @@ defmodule CodexWrapper.Session do
   Any exec option accepted by `CodexWrapper.exec/2`. The options apply to
   every turn, with two exceptions:
 
-    * `:profile`, `:cd`, `:add_dir`, `:color`, `:oss`, `:local_provider`,
-      `:search`, `:approve_for_me`, `:worktree`, `:thread_source` and
-      `:cyber_access_program` apply to the first turn only, since the
-      `ExecResume` builder cannot emit them. They are skipped on resumed turns, and passing one to
-      `send/3` or `stream/3` on a resumed turn raises `ArgumentError`.
+    * `:worktree` and `:thread_source` apply to the first turn only:
+      `codex exec resume` rejects `--worktree`, and `--thread-source`
+      classifies a newly created thread. They are skipped on resumed
+      turns, and passing one to `send/3` or `stream/3` on a resumed turn
+      raises `ArgumentError`. `:profile`, `:cd`, `:add_dir`, `:color`,
+      `:oss`, `:local_provider` and `:approve_for_me` are emitted before
+      `resume` on every turn.
     * `:sandbox` and `:approval_policy` are emitted on resumed turns as
       `-c sandbox_mode="..."` and `-c approval_policy="..."`.
 

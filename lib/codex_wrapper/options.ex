@@ -14,21 +14,10 @@ defmodule CodexWrapper.Options do
   @color_modes [:always, :never, :auto]
   @cyber_access_programs [:standard, :daybreak_blue, :daybreak_red]
 
-  # Options `codex exec` accepts and `codex exec resume` rejects after the
-  # subcommand. A session applies them on its first turn only.
-  @first_turn_only [
-    :profile,
-    :cd,
-    :add_dir,
-    :color,
-    :oss,
-    :local_provider,
-    :search,
-    :approve_for_me,
-    :worktree,
-    :thread_source,
-    :cyber_access_program
-  ]
+  # Options a session applies on its first turn only: `codex exec resume`
+  # rejects `--worktree` at run time, and `--thread-source` classifies a
+  # newly created thread.
+  @first_turn_only [:worktree, :thread_source]
 
   @doc false
   @spec first_turn_only() :: [atom()]
@@ -171,6 +160,31 @@ defmodule CodexWrapper.Options do
   defp exec_resume_opt({:output_last_message, v}, e),
     do: ExecResume.output_last_message(e, string!(:output_last_message, v))
 
+  defp exec_resume_opt({:profile, v}, e), do: ExecResume.profile(e, string!(:profile, v))
+  defp exec_resume_opt({:cd, v}, e), do: ExecResume.cd(e, string!(:cd, v))
+  defp exec_resume_opt({:add_dir, v}, e), do: each(e, :add_dir, v, &ExecResume.add_dir/2)
+  defp exec_resume_opt({:color, v}, e), do: ExecResume.color(e, member!(:color, v, @color_modes))
+  defp exec_resume_opt({:oss, v}, e), do: flag(e, :oss, v, &ExecResume.oss/1)
+
+  defp exec_resume_opt({:local_provider, v}, e),
+    do: ExecResume.local_provider(e, string!(:local_provider, v))
+
+  defp exec_resume_opt({:search, true}, e), do: ExecResume.search(e)
+  defp exec_resume_opt({:search, false}, e), do: e
+
+  defp exec_resume_opt({:search, v}, e),
+    do: ExecResume.search(e, member!(:search, v, @search_modes))
+
+  defp exec_resume_opt({:approve_for_me, v}, e),
+    do: flag(e, :approve_for_me, v, &ExecResume.approve_for_me/1)
+
+  defp exec_resume_opt({:cyber_access_program, v}, e),
+    do:
+      ExecResume.cyber_access_program(
+        e,
+        member!(:cyber_access_program, v, @cyber_access_programs)
+      )
+
   defp exec_resume_opt({:image, v}, e), do: each(e, :image, v, &ExecResume.image/2)
   defp exec_resume_opt({:config, v}, e), do: each(e, :config, v, &ExecResume.config/2)
   defp exec_resume_opt({:enable, v}, e), do: each(e, :enable, v, &ExecResume.enable/2)
@@ -228,6 +242,26 @@ defmodule CodexWrapper.Options do
 
   defp review_opt({:output_last_message, v}, r),
     do: Review.output_last_message(r, string!(:output_last_message, v))
+
+  defp review_opt({:profile, v}, r), do: Review.profile(r, string!(:profile, v))
+  defp review_opt({:cd, v}, r), do: Review.cd(r, string!(:cd, v))
+  defp review_opt({:add_dir, v}, r), do: each(r, :add_dir, v, &Review.add_dir/2)
+  defp review_opt({:color, v}, r), do: Review.color(r, member!(:color, v, @color_modes))
+  defp review_opt({:oss, v}, r), do: flag(r, :oss, v, &Review.oss/1)
+
+  defp review_opt({:local_provider, v}, r),
+    do: Review.local_provider(r, string!(:local_provider, v))
+
+  defp review_opt({:approve_for_me, v}, r),
+    do: flag(r, :approve_for_me, v, &Review.approve_for_me/1)
+
+  defp review_opt({:approval_policy, v}, r), do: Review.approval_policy(r, approval_policy!(v))
+  defp review_opt({:search, true}, r), do: Review.search(r)
+  defp review_opt({:search, false}, r), do: r
+  defp review_opt({:search, v}, r), do: Review.search(r, member!(:search, v, @search_modes))
+
+  defp review_opt({:thread_source, v}, r),
+    do: Review.thread_source(r, string!(:thread_source, v))
 
   defp review_opt({:config, v}, r), do: each(r, :config, v, &Review.config/2)
   defp review_opt({:enable, v}, r), do: each(r, :enable, v, &Review.enable/2)
