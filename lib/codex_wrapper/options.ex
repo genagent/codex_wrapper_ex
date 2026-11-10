@@ -106,6 +106,11 @@ defmodule CodexWrapper.Options do
   defp exec_opt({:cyber_access_program, v}, e),
     do: Exec.cyber_access_program(e, member!(:cyber_access_program, v, @cyber_access_programs))
 
+  defp exec_opt({:reasoning_effort, v}, e), do: Exec.reasoning_effort(e, v)
+  defp exec_opt({:reasoning_summary, v}, e), do: Exec.reasoning_summary(e, v)
+  defp exec_opt({:verbosity, v}, e), do: Exec.verbosity(e, v)
+  defp exec_opt({:approvals_reviewer, v}, e), do: Exec.approvals_reviewer(e, v)
+  defp exec_opt({:rollout_budget, v}, e), do: Exec.rollout_budget(e, v)
   defp exec_opt({:image, v}, e), do: each(e, :image, v, &Exec.image/2)
   defp exec_opt({:config, v}, e), do: each(e, :config, v, &Exec.config/2)
   defp exec_opt({:enable, v}, e), do: each(e, :enable, v, &Exec.enable/2)
@@ -185,6 +190,11 @@ defmodule CodexWrapper.Options do
         member!(:cyber_access_program, v, @cyber_access_programs)
       )
 
+  defp exec_resume_opt({:reasoning_effort, v}, e), do: ExecResume.reasoning_effort(e, v)
+  defp exec_resume_opt({:reasoning_summary, v}, e), do: ExecResume.reasoning_summary(e, v)
+  defp exec_resume_opt({:verbosity, v}, e), do: ExecResume.verbosity(e, v)
+  defp exec_resume_opt({:approvals_reviewer, v}, e), do: ExecResume.approvals_reviewer(e, v)
+  defp exec_resume_opt({:rollout_budget, v}, e), do: ExecResume.rollout_budget(e, v)
   defp exec_resume_opt({:image, v}, e), do: each(e, :image, v, &ExecResume.image/2)
   defp exec_resume_opt({:config, v}, e), do: each(e, :config, v, &ExecResume.config/2)
   defp exec_resume_opt({:enable, v}, e), do: each(e, :enable, v, &ExecResume.enable/2)
@@ -263,6 +273,11 @@ defmodule CodexWrapper.Options do
   defp review_opt({:thread_source, v}, r),
     do: Review.thread_source(r, string!(:thread_source, v))
 
+  defp review_opt({:reasoning_effort, v}, r), do: Review.reasoning_effort(r, v)
+  defp review_opt({:reasoning_summary, v}, r), do: Review.reasoning_summary(r, v)
+  defp review_opt({:verbosity, v}, r), do: Review.verbosity(r, v)
+  defp review_opt({:approvals_reviewer, v}, r), do: Review.approvals_reviewer(r, v)
+  defp review_opt({:rollout_budget, v}, r), do: Review.rollout_budget(r, v)
   defp review_opt({:config, v}, r), do: each(r, :config, v, &Review.config/2)
   defp review_opt({:enable, v}, r), do: each(r, :enable, v, &Review.enable/2)
   defp review_opt({:disable, v}, r), do: each(r, :disable, v, &Review.disable/2)

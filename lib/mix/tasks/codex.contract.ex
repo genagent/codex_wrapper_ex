@@ -50,7 +50,7 @@ defmodule Mix.Tasks.Codex.Contract do
 
   @requirements ["app.start"]
 
-  @enum_config_keys ~w(approval_policy web_search sandbox_mode)
+  @enum_config_keys ~w(approval_policy web_search sandbox_mode model_reasoning_summary model_verbosity approvals_reviewer)
   @sentinel "__codex_wrapper_contract_probe__"
 
   # First codex-cli version each flag is known in, for flags newer than the
@@ -177,6 +177,11 @@ defmodule Mix.Tasks.Codex.Contract do
     |> Exec.dangerously_bypass_approvals_and_sandbox()
     |> Exec.thread_source("contract")
     |> Exec.cyber_access_program(:standard)
+    |> Exec.reasoning_effort("high")
+    |> Exec.reasoning_summary(:concise)
+    |> Exec.verbosity(:low)
+    |> Exec.approvals_reviewer(:auto_review)
+    |> Exec.rollout_budget(limit_tokens: 100_000, reminder_at_remaining_tokens: [50_000])
   end
 
   # --approve-for-me excludes --sandbox and the bypass flag, and
@@ -219,6 +224,11 @@ defmodule Mix.Tasks.Codex.Contract do
     |> ExecResume.search()
     |> ExecResume.thread_source("contract")
     |> ExecResume.cyber_access_program(:standard)
+    |> ExecResume.reasoning_effort("high")
+    |> ExecResume.reasoning_summary(:concise)
+    |> ExecResume.verbosity(:low)
+    |> ExecResume.approvals_reviewer(:auto_review)
+    |> ExecResume.rollout_budget(limit_tokens: 100_000, reminder_at_remaining_tokens: [50_000])
   end
 
   defp maximal_exec_fork do
@@ -250,6 +260,11 @@ defmodule Mix.Tasks.Codex.Contract do
     |> ExecFork.search()
     |> ExecFork.thread_source("contract")
     |> ExecFork.cyber_access_program(:standard)
+    |> ExecFork.reasoning_effort("high")
+    |> ExecFork.reasoning_summary(:concise)
+    |> ExecFork.verbosity(:low)
+    |> ExecFork.approvals_reviewer(:auto_review)
+    |> ExecFork.rollout_budget(limit_tokens: 100_000, reminder_at_remaining_tokens: [50_000])
   end
 
   # --worktree excludes --ephemeral.
@@ -290,6 +305,11 @@ defmodule Mix.Tasks.Codex.Contract do
     |> Review.approval_policy(:never)
     |> Review.search()
     |> Review.thread_source("contract")
+    |> Review.reasoning_effort("high")
+    |> Review.reasoning_summary(:concise)
+    |> Review.verbosity(:low)
+    |> Review.approvals_reviewer(:auto_review)
+    |> Review.rollout_budget(limit_tokens: 100_000, reminder_at_remaining_tokens: [50_000])
   end
 
   @impl Mix.Task
@@ -488,10 +508,36 @@ defmodule Mix.Tasks.Codex.Contract do
   defp check_config_key(binary, subcommand, label, kv) do
     key = kv |> String.split("=", parts: 2) |> hd()
 
-    if key in @enum_config_keys do
-      probe_enum_key(binary, subcommand, label, key)
+    cond do
+      key in @enum_config_keys ->
+        probe_enum_key(binary, subcommand, label, key)
+
+      key == "model_reasoning_effort" ->
+        # Any non-empty string is valid; an empty one fails config loading.
+        probe_rejects(binary, subcommand, label, key, ~s(#{key}=""), "must not be empty")
+
+      key == "features.rollout_budget" ->
+        # A table with an unknown field fails as a malformed rollout_budget,
+        # not as an unknown configuration field, which proves codex knows it.
+        table =
+          ~s({enabled=true,limit_tokens=1,reminder_at_remaining_tokens=[1],#{@sentinel}=1})
+
+        probe_rejects(binary, subcommand, label, key, "#{key}=#{table}", "`#{key}`")
+
+      true ->
+        ["#{label}: refusing unsafe config probe for #{key}; add a bounded probe first"]
+    end
+  end
+
+  defp probe_rejects(binary, subcommand, label, key, kv, expected) do
+    args = probe_args(subcommand) ++ ["--strict-config", "-c", kv]
+    {output, code} = System.cmd(binary, args, stderr_to_stdout: true)
+
+    if code != 0 and String.contains?(output, expected) and
+         not String.contains?(output, "unknown configuration field") do
+      []
     else
-      ["#{label}: refusing unsafe config probe for #{key}; add a bounded probe first"]
+      ["#{label}: #{key} was not rejected as expected; config drift or blind probe"]
     end
   end
 

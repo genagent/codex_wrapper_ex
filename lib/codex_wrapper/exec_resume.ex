@@ -25,9 +25,27 @@ defmodule CodexWrapper.ExecResume do
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, ExecLevel, JsonLineEvent, Result, Runner, Telemetry}
+  alias CodexWrapper.{
+    Command,
+    Config,
+    ConfigFields,
+    ExecLevel,
+    JsonLineEvent,
+    Result,
+    Runner,
+    Telemetry
+  }
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
+  @type reasoning_summary :: :auto | :concise | :detailed | :none
+  @type verbosity :: :low | :medium | :high
+  @type approvals_reviewer :: :user | :auto_review | :guardian_subagent
+  @type rollout_budget :: [
+          limit_tokens: pos_integer(),
+          reminder_at_remaining_tokens: [pos_integer()],
+          sampling_token_weight: number(),
+          prefill_token_weight: number()
+        ]
   @type color_mode :: :always | :never | :auto
   @type web_search_mode :: :cached | :indexed | :live | :disabled
   @type cyber_access_program :: :standard | :daybreak_blue | :daybreak_red
@@ -58,6 +76,7 @@ defmodule CodexWrapper.ExecResume do
           search: web_search_mode() | nil,
           thread_source: String.t() | nil,
           cyber_access_program: cyber_access_program() | nil,
+          config_fields: %{optional(String.t()) => String.t()},
           strict_config: boolean(),
           ignore_user_config: boolean(),
           ignore_rules: boolean()
@@ -88,6 +107,7 @@ defmodule CodexWrapper.ExecResume do
     enabled_features: [],
     disabled_features: [],
     exec_level: %ExecLevel{},
+    config_fields: %{},
     strict_config: false,
     ignore_user_config: false,
     ignore_rules: false
@@ -348,6 +368,53 @@ defmodule CodexWrapper.ExecResume do
       when program in [:standard, :daybreak_blue, :daybreak_red],
       do: %{e | cyber_access_program: program}
 
+  # --- Typed config fields (`-c`) ---
+
+  @doc """
+  Set the reasoning effort (`-c model_reasoning_effort="<effort>"`).
+
+  Any non-empty string the model advertises, for example `"low"`,
+  `"medium"` or `"high"`. An empty string raises `ArgumentError`.
+  """
+  @spec reasoning_effort(t(), String.t()) :: t()
+  def reasoning_effort(%__MODULE__{} = e, effort), do: put_field(e, :reasoning_effort, effort)
+
+  @doc """
+  Set the reasoning summary (`-c model_reasoning_summary="<value>"`):
+  `:auto`, `:concise`, `:detailed` or `:none`.
+  """
+  @spec reasoning_summary(t(), reasoning_summary()) :: t()
+  def reasoning_summary(%__MODULE__{} = e, value), do: put_field(e, :reasoning_summary, value)
+
+  @doc "Set the output verbosity (`-c model_verbosity=\"<value>\"`): `:low`, `:medium` or `:high`."
+  @spec verbosity(t(), verbosity()) :: t()
+  def verbosity(%__MODULE__{} = e, value), do: put_field(e, :verbosity, value)
+
+  @doc """
+  Select who reviews approval requests (`-c approvals_reviewer="<value>"`):
+  `:user`, `:auto_review` or `:guardian_subagent` (a legacy value).
+  """
+  @spec approvals_reviewer(t(), approvals_reviewer()) :: t()
+  def approvals_reviewer(%__MODULE__{} = e, value),
+    do: put_field(e, :approvals_reviewer, value)
+
+  @doc """
+  Enable codex's native rollout token budget
+  (`-c features.rollout_budget={enabled=true,...}`).
+
+  `:limit_tokens` (a positive integer) and `:reminder_at_remaining_tokens`
+  (a non-empty list of positive integers) are required by codex.
+  `:sampling_token_weight` and `:prefill_token_weight` are optional
+  positive numbers. Anything else raises `ArgumentError`.
+
+      rollout_budget(e, limit_tokens: 100_000, reminder_at_remaining_tokens: [50_000, 10_000])
+  """
+  @spec rollout_budget(t(), rollout_budget()) :: t()
+  def rollout_budget(%__MODULE__{} = e, opts), do: put_field(e, :rollout_budget, opts)
+
+  defp put_field(e, key, value),
+    do: %{e | config_fields: ConfigFields.put(e.config_fields, key, value)}
+
   # --- Execution ---
 
   @doc """
@@ -498,7 +565,9 @@ defmodule CodexWrapper.ExecResume do
   # User-supplied overrides come first, so an explicit `sandbox/2` call
   # wins on a last-wins CLI.
   defp config_overrides(%__MODULE__{} = e) do
-    e.config_overrides ++ ExecLevel.config_overrides(e) ++ sandbox_override(e)
+    e.config_overrides ++
+      ConfigFields.overrides(e.config_fields) ++
+      ExecLevel.config_overrides(e) ++ sandbox_override(e)
   end
 
   defp sandbox_override(%__MODULE__{} = e) do

@@ -345,6 +345,35 @@ Write access to `.git` also lets the sandboxed agent change hooks and
 config that git runs later, outside the sandbox. Committing outside codex
 after reviewing the diff stays the conservative option.
 
+### Typed config fields
+
+These builders emit `-c` config fields with values checked before codex
+starts. They are on `Exec`, `ExecResume`, `ExecFork` and `Review`, and are
+also options on `CodexWrapper.exec/2`, `review/1` and `Session`:
+
+| Builder | Config field | Values |
+|---|---|---|
+| `reasoning_effort/2` | `model_reasoning_effort` | any non-empty string, e.g. `"high"` |
+| `reasoning_summary/2` | `model_reasoning_summary` | `:auto`, `:concise`, `:detailed`, `:none` |
+| `verbosity/2` | `model_verbosity` | `:low`, `:medium`, `:high` |
+| `approvals_reviewer/2` | `approvals_reviewer` | `:user`, `:auto_review`, `:guardian_subagent` |
+| `rollout_budget/2` | `features.rollout_budget` | `limit_tokens:` and `reminder_at_remaining_tokens:` (required), `sampling_token_weight:`, `prefill_token_weight:` |
+
+```elixir
+Exec.new("review the migration")
+|> Exec.reasoning_effort("high")
+|> Exec.reasoning_summary(:concise)
+|> Exec.verbosity(:low)
+|> Exec.rollout_budget(limit_tokens: 100_000, reminder_at_remaining_tokens: [50_000, 10_000])
+# -c model_reasoning_effort="high" -c model_reasoning_summary="concise" -c model_verbosity="low"
+# -c features.rollout_budget={enabled=true,limit_tokens=100000,reminder_at_remaining_tokens=[50000,10000]}
+```
+
+An invalid value raises `ArgumentError`. The typed fields are emitted after
+any `config/2` entries, and codex applies repeated `-c` last-wins, so a
+typed builder wins over a `config/2` entry for the same key, as
+`approval_policy/2` and `search/1,2` already do.
+
 ### Config isolation
 
 By default the CLI loads `$CODEX_HOME/config.toml`, so a programmatic run
