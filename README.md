@@ -739,6 +739,43 @@ alias CodexWrapper.Commands.Completion
 {:ok, script} = Completion.generate(config, :zsh)
 ```
 
+## Plugins
+
+`CodexWrapper.Commands.Plugin` wraps `codex plugin` and
+`codex plugin marketplace`. Every call passes `--json` and returns the
+decoded document.
+
+```elixir
+alias CodexWrapper.Commands.Plugin
+
+{:ok, %{"installed" => installed, "available" => available}} =
+  Plugin.list(config, available: true)
+
+{:ok, _} = Plugin.add(config, "sample@debug")
+{:ok, _} = Plugin.remove(config, "sample", marketplace: "debug")
+
+{:ok, _} = Plugin.marketplace_add(config, "https://example.com/plugins.git", ref: "v1")
+{:ok, %{"marketplaces" => _}} = Plugin.marketplace_list(config)
+{:ok, _} = Plugin.marketplace_upgrade(config)
+{:ok, _} = Plugin.marketplace_remove(config, "debug")
+```
+
+`add`, `remove` and the marketplace changes edit `$CODEX_HOME/config.toml`
+and the plugin cache. A non-zero exit returns `{:error, {:exit, code, output}}`.
+
+## Queueing a message
+
+`CodexWrapper.Commands.Queue.add/4` wraps `codex queue`, which queues a
+message for an existing session, named by id or exact session name:
+
+```elixir
+{:ok, _output} = CodexWrapper.Commands.Queue.add(config, thread_id, "also run the linter")
+```
+
+Codex looks the thread up in its local thread store, or on the app server
+given with `remote: "ws://..."`. The message travels in argv, so it is
+visible in the process table.
+
 ## Session lifecycle
 
 `codex archive`, `codex unarchive`, and `codex delete` operate on a saved
@@ -1264,6 +1301,8 @@ options listed in its docs plus every option in this table except
 | `CodexWrapper.Commands.Sandbox` | Sandboxed command execution |
 | `CodexWrapper.Commands.Apply` | Apply diffs from task IDs |
 | `CodexWrapper.Commands.Archive` | Archive, unarchive, and delete saved sessions |
+| `CodexWrapper.Commands.Plugin` | Plugins and plugin marketplaces |
+| `CodexWrapper.Commands.Queue` | Queue a message for an existing session |
 | `CodexWrapper.History` | Read session rollout files, plain and `.jsonl.zst` |
 | `CodexWrapper.Commands.Completion` | Shell completion script generation |
 | `CodexWrapper.Commands.Doctor` | Install, config, auth, and runtime diagnostics |

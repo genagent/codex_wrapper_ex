@@ -90,6 +90,8 @@ defmodule CodexWrapperEx.MixProject do
           CodexWrapper.Commands.Features,
           CodexWrapper.Commands.Mcp,
           CodexWrapper.Commands.McpServer,
+          CodexWrapper.Commands.Plugin,
+          CodexWrapper.Commands.Queue,
           CodexWrapper.Commands.Sandbox,
           CodexWrapper.Commands.Version
         ]
