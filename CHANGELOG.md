@@ -15,6 +15,32 @@
 
 * Port startup failures now return `{:error, {:spawn, reason}}` instead of raising. Streaming consumers receive a `CodexWrapper.StreamError` item.
 
+## [0.10.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.9.0...v0.10.0) (2026-11-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **forcola:** Runner.Forcola requires forcola ~> 0.12. forcola 0.9 and later raise ArgumentError for env values other than binaries, nil or false; CodexWrapper.Config already rejects those.
+* **env:** Child processes launched inside an Elixir release, when RELEASE_ROOT is set, now scrub RELEASE_*, BINDIR, ROOTDIR, and release PATH entries by default, as introduced in #170. Set release_env: :inherit to opt out. Custom runners must honour {name, false} entries in opts[:env] by removing those variables from the inherited environment on every implemented execution callback.
+
+### Features
+
+* add typed turn results and session usage totals ([#171](https://github.com/genagent/codex_wrapper_ex/issues/171)) ([508ebca](https://github.com/genagent/codex_wrapper_ex/commit/508ebca46b7af3620db0399a367850a1244574de))
+* **commands:** add Commands.Plugin and Commands.Queue ([#179](https://github.com/genagent/codex_wrapper_ex/issues/179)) ([26e203d](https://github.com/genagent/codex_wrapper_ex/commit/26e203d3ff06df2728cdf2ee97b3f01360c3fb92)), closes [#158](https://github.com/genagent/codex_wrapper_ex/issues/158)
+* **env:** scrub release variables from child processes ([#170](https://github.com/genagent/codex_wrapper_ex/issues/170)) ([590ef0b](https://github.com/genagent/codex_wrapper_ex/commit/590ef0bffa3795ed47b6bac1f78967cc9320861c))
+* **exec:** add approve_for_me, worktree, thread_source and cyber_access_program ([#167](https://github.com/genagent/codex_wrapper_ex/issues/167)) ([b9b9183](https://github.com/genagent/codex_wrapper_ex/commit/b9b9183a14f3daf5a97f38d20ff94a1594797f0f))
+* **forcola:** require forcola 0.12 and send SIGINT first on Forcola streams ([#176](https://github.com/genagent/codex_wrapper_ex/issues/176)) ([0c9312a](https://github.com/genagent/codex_wrapper_ex/commit/0c9312a48036c4ad5682aed3e15483f583a3b57e)), closes [#119](https://github.com/genagent/codex_wrapper_ex/issues/119)
+* **history:** add CodexWrapper.History for session rollouts, including .jsonl.zst ([#177](https://github.com/genagent/codex_wrapper_ex/issues/177)) ([6e8df52](https://github.com/genagent/codex_wrapper_ex/commit/6e8df5209ebaf687a5253ae9cfb09efa7c445931))
+* **retry:** pass failed runs to retry_on (closes [#152](https://github.com/genagent/codex_wrapper_ex/issues/152)) ([#181](https://github.com/genagent/codex_wrapper_ex/issues/181)) ([5e6a652](https://github.com/genagent/codex_wrapper_ex/commit/5e6a652cd4824ab7eff0791563f6f6167b26cb87))
+* support exec-level options on ExecResume, ExecFork and Review ([#178](https://github.com/genagent/codex_wrapper_ex/issues/178)) ([a5549d9](https://github.com/genagent/codex_wrapper_ex/commit/a5549d911a9fc8e568a6acc27465b4fbc3bad79d)), closes [#143](https://github.com/genagent/codex_wrapper_ex/issues/143)
+* typed builders for reasoning, verbosity, rollout budget and approvals reviewer ([#180](https://github.com/genagent/codex_wrapper_ex/issues/180)) ([1095324](https://github.com/genagent/codex_wrapper_ex/commit/1095324642bbdecf01e87a46739f523fbd675f40)), closes [#146](https://github.com/genagent/codex_wrapper_ex/issues/146)
+
+
+### Bug Fixes
+
+* cache session usage and clarify turn field scopes ([#173](https://github.com/genagent/codex_wrapper_ex/issues/173)) ([49273c4](https://github.com/genagent/codex_wrapper_ex/commit/49273c43fe79d3707abeeccb819432814250ddfa))
+* **env:** route release_env through IEx chat and resume ([#174](https://github.com/genagent/codex_wrapper_ex/issues/174)) ([e40ebed](https://github.com/genagent/codex_wrapper_ex/commit/e40ebede98a3c22408ba15b12d6c14f9db824865))
+
 ## [0.9.0](https://github.com/genagent/codex_wrapper_ex/compare/v0.8.1...v0.9.0) (2026-11-01)
 
 
