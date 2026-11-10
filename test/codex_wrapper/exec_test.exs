@@ -492,4 +492,70 @@ defmodule CodexWrapper.ExecTest do
       refute "--local-provider" in args
     end
   end
+
+  describe "approve_for_me, worktree, thread_source and cyber_access_program" do
+    test "emit their flags before the prompt" do
+      args =
+        Exec.new("fix the failing test")
+        |> Exec.worktree()
+        |> Exec.approve_for_me()
+        |> Exec.thread_source("nightly")
+        |> Exec.cyber_access_program(:standard)
+        |> Exec.args()
+
+      assert "--approve-for-me" in args
+      assert "--worktree" in args
+
+      assert ["--thread-source", "nightly"] ==
+               Enum.drop_while(args, &(&1 != "--thread-source")) |> Enum.take(2)
+
+      assert ["--cyber-access-program", "standard"] ==
+               Enum.drop_while(args, &(&1 != "--cyber-access-program")) |> Enum.take(2)
+
+      assert Enum.take(args, -2) == ["--", "-"]
+    end
+
+    test "cyber_access_program accepts only the three programs" do
+      for program <- [:standard, :daybreak_blue, :daybreak_red] do
+        assert Exec.new("x")
+               |> Exec.cyber_access_program(program)
+               |> Exec.args()
+               |> Enum.member?(Atom.to_string(program))
+      end
+
+      # Read at runtime so the type checker does not flag the invalid call.
+      program = Process.get(:cyber_access_program_probe, :other)
+
+      assert_raise FunctionClauseError, fn ->
+        Exec.cyber_access_program(Exec.new("x"), program)
+      end
+    end
+
+    test "approve_for_me with a sandbox raises when the argv is built" do
+      for exec <- [
+            Exec.new("x") |> Exec.approve_for_me() |> Exec.sandbox(:read_only),
+            Exec.new("x") |> Exec.approve_for_me() |> Exec.full_auto()
+          ] do
+        assert_raise ArgumentError, ~r/approve_for_me/, fn -> Exec.args(exec) end
+      end
+    end
+
+    test "approve_for_me with the bypass flag raises" do
+      exec =
+        Exec.new("x") |> Exec.approve_for_me() |> Exec.dangerously_bypass_approvals_and_sandbox()
+
+      assert_raise ArgumentError, ~r/approve_for_me/, fn -> Exec.args(exec) end
+    end
+
+    test "worktree with ephemeral raises" do
+      exec = Exec.new("x") |> Exec.worktree() |> Exec.ephemeral()
+      assert_raise ArgumentError, ~r/worktree/, fn -> Exec.args(exec) end
+    end
+
+    test "execute raises before spawning on a rejected combination" do
+      config = CodexWrapper.Config.new(binary: "/nonexistent/codex")
+      exec = Exec.new("x") |> Exec.worktree() |> Exec.ephemeral()
+      assert_raise ArgumentError, fn -> Exec.execute(exec, config) end
+    end
+  end
 end
