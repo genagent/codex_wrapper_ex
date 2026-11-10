@@ -23,6 +23,37 @@ defmodule CodexWrapper.Retry do
           _ -> false
         end
       )
+
+  ## Failed runs
+
+  A run that exits nonzero returns `{:ok, %CodexWrapper.Result{success: false}}`
+  from `CodexWrapper.Exec.execute/2`. `:retry_on` receives that tuple as well
+  as `{:error, reason}` (#152). The default predicate does not retry failed
+  runs: each attempt re-sends the prompt as a new `codex exec`, and the tool
+  commands a failed attempt ran (file edits, shell commands) are not undone,
+  so a retry can repeat them. When retries are exhausted or `:retry_on`
+  returns `false`, the failed run is returned as is.
+
+  The wrapper does not classify capacity or rate-limit failures. codex-cli
+  0.165.0 does not pass the provider's status or error code through in
+  `--json` output: a 429, 503 or 529 appears only inside codex's own
+  message text (for example `exceeded retry limit, last status: 429 Too
+  Many Requests`), which can change between CLI versions. A caller that
+  wants to retry those can inspect the failed turn itself:
+
+      retry_on = fn
+        {:ok, %CodexWrapper.Result{success: false} = result} ->
+          case CodexWrapper.Turn.from_result(result).error do
+            %{"message" => message} when is_binary(message) ->
+              message =~ ~r/status (429|503|529)\\b/
+
+            _ ->
+              false
+          end
+
+        _ ->
+          false
+      end
   """
 
   alias CodexWrapper.{Config, Exec, Result}
@@ -51,8 +82,10 @@ defmodule CodexWrapper.Retry do
     * `:max_delay_ms` - Maximum delay cap in ms (default: 30000)
     * `:multiplier` - Backoff multiplier (default: 2)
     * `:jitter` - Add random jitter to delays (default: true)
-    * `:retry_on` - Function that receives the error and returns whether to retry.
-      Defaults to retrying on timeouts and system cmd errors.
+    * `:retry_on` - Function that receives `{:error, reason}`, or
+      `{:ok, %CodexWrapper.Result{success: false}}` for a run that exited
+      nonzero, and returns whether to retry. Defaults to retrying on
+      timeouts and system cmd errors only; see "Failed runs".
   """
   @spec execute(Exec.t(), Config.t(), opts()) :: {:ok, Result.t()} | {:error, term()}
   def execute(%Exec{} = exec, %Config{} = config, opts \\ []) do
@@ -86,16 +119,16 @@ defmodule CodexWrapper.Retry do
     } = opts
 
     case Exec.execute(exec, config) do
-      {:ok, _result} = success ->
+      {:ok, %Result{success: true}} = success ->
         success
 
-      {:error, _reason} = error ->
-        if attempt < max_retries and retry_on.(error) do
+      failure ->
+        if attempt < max_retries and retry_on.(failure) do
           delay = compute_delay(attempt, base_delay, max_delay, multiplier, jitter?)
           Process.sleep(delay)
           do_execute(exec, config, attempt + 1, opts)
         else
-          error
+          failure
         end
     end
   end

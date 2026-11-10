@@ -1,7 +1,7 @@
 defmodule CodexWrapper.RetryTest do
   use ExUnit.Case, async: true
 
-  alias CodexWrapper.Retry
+  alias CodexWrapper.{Config, Exec, Result, Retry}
 
   describe "compute_delay/5" do
     test "without jitter" do
@@ -29,6 +29,61 @@ defmodule CodexWrapper.RetryTest do
       Code.ensure_loaded!(Retry)
       assert {:execute, 3} in Retry.__info__(:functions)
       assert {:compute_delay, 5} in Retry.__info__(:functions)
+    end
+  end
+
+  describe "failed runs (#152)" do
+    @describetag :tmp_dir
+
+    # A fake codex that records each invocation and exits with `code`.
+    defp failing_codex(dir, code) do
+      path = Path.join(dir, "codex")
+      count = Path.join(dir, "count")
+      File.write!(path, "#!/bin/sh\necho x >> '#{count}'\nexit #{code}\n")
+      File.chmod!(path, 0o755)
+      {Config.new(binary: path), count}
+    end
+
+    defp invocations(count),
+      do: count |> File.read!() |> String.split("\n", trim: true) |> length()
+
+    test "retry_on receives a failed run and can retry it", %{tmp_dir: dir} do
+      {config, count} = failing_codex(dir, 1)
+      parent = self()
+
+      retry_on = fn reply ->
+        send(parent, {:retry_on, reply})
+        true
+      end
+
+      assert {:ok, %Result{success: false, exit_code: 1}} =
+               Retry.execute(Exec.new("x"), config,
+                 max_retries: 2,
+                 base_delay_ms: 1,
+                 jitter: false,
+                 retry_on: retry_on
+               )
+
+      assert invocations(count) == 3
+      assert_received {:retry_on, {:ok, %Result{success: false}}}
+    end
+
+    test "the default predicate does not retry a failed run", %{tmp_dir: dir} do
+      {config, count} = failing_codex(dir, 1)
+
+      assert {:ok, %Result{success: false}} =
+               Retry.execute(Exec.new("x"), config, base_delay_ms: 1, jitter: false)
+
+      assert invocations(count) == 1
+    end
+
+    test "a successful run is returned without consulting retry_on", %{tmp_dir: dir} do
+      {config, count} = failing_codex(dir, 0)
+
+      assert {:ok, %Result{success: true}} =
+               Retry.execute(Exec.new("x"), config, retry_on: fn _ -> flunk("called") end)
+
+      assert invocations(count) == 1
     end
   end
 end

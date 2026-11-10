@@ -599,6 +599,13 @@ Retry.execute(exec, config,
 )
 ```
 
+`:retry_on` also receives `{:ok, %Result{success: false}}` for a run that
+exited nonzero. The default does not retry those, since a retry re-sends the
+prompt and can repeat the failed attempt's tool commands. The wrapper does
+not classify rate-limit or capacity failures: codex-cli 0.165.0 reports a
+429, 503 or 529 only in its own message text, not as a structured field. See
+the `CodexWrapper.Retry` docs for a predicate that matches that text.
+
 ## SessionServer (GenServer)
 
 For OTP applications that need a supervised, process-based session:
