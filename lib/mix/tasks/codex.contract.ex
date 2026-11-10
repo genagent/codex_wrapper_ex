@@ -45,6 +45,7 @@ defmodule Mix.Tasks.Codex.Contract do
 
   use Mix.Task
 
+  alias CodexWrapper.Commands.{Plugin, Queue}
   alias CodexWrapper.{Exec, ExecFork, ExecResume, Review}
 
   @requirements ["app.start"]
@@ -82,7 +83,20 @@ defmodule Mix.Tasks.Codex.Contract do
       "--config" => "emitted as -c",
       "--worktree" => "listed, but codex rejects it: not supported for code review",
       "--cyber-access-program" => "listed, but help says it is not supported with review"
-    }
+    },
+    "queue" => %{
+      "--help" => "help",
+      "--config" => "emitted as -c",
+      "--image" => "listed, but codex rejects it: does not support image attachments",
+      "--worktree" => "listed, but codex rejects it outside new sessions and forks"
+    },
+    "plugin list" => %{"--help" => "help", "--config" => "emitted as -c"},
+    "plugin add" => %{"--help" => "help", "--config" => "emitted as -c"},
+    "plugin remove" => %{"--help" => "help", "--config" => "emitted as -c"},
+    "plugin marketplace add" => %{"--help" => "help", "--config" => "emitted as -c"},
+    "plugin marketplace list" => %{"--help" => "help", "--config" => "emitted as -c"},
+    "plugin marketplace upgrade" => %{"--help" => "help", "--config" => "emitted as -c"},
+    "plugin marketplace remove" => %{"--help" => "help", "--config" => "emitted as -c"}
   }
 
   # Each entry: {label, argv the builder produces}. Built maximally so
@@ -95,8 +109,45 @@ defmodule Mix.Tasks.Codex.Contract do
       {"exec resume", ExecResume.args(maximal_exec_resume())},
       {"exec fork", ExecFork.args(maximal_exec_fork())},
       {"exec fork", ExecFork.args(maximal_exec_fork_exclusive())},
-      {"exec review", Review.args(maximal_review())}
+      {"exec review", Review.args(maximal_review())},
+      {"queue", Queue.args(maximal_queue())}
+    ] ++ plugin_specs()
+  end
+
+  defp maximal_queue do
+    Queue.new("thread", "message",
+      remote: "ws://127.0.0.1:9",
+      remote_auth_token_env: "TOKEN",
+      model: "gpt-5",
+      profile: "contract",
+      local_provider: "ollama",
+      cd: "/tmp",
+      add_dir: "/tmp",
+      sandbox: :read_only,
+      oss: true,
+      approve_for_me: true,
+      strict_config: true,
+      dangerously_bypass_approvals_and_sandbox: true,
+      dangerously_bypass_hook_trust: true,
+      enable: "some-feature",
+      disable: "other-feature"
+    )
+  end
+
+  defp plugin_specs do
+    features = [enable: "some-feature", disable: "other-feature"]
+
+    [
+      {"plugin list", Plugin.new(:list, nil, [marketplace: "m", available: true] ++ features)},
+      {"plugin add", Plugin.new(:add, "p", [marketplace: "m"] ++ features)},
+      {"plugin remove", Plugin.new(:remove, "p", [marketplace: "m"] ++ features)},
+      {"plugin marketplace add",
+       Plugin.new(:marketplace_add, "src", [ref: "main", sparse: "dir"] ++ features)},
+      {"plugin marketplace list", Plugin.new(:marketplace_list, nil, features)},
+      {"plugin marketplace upgrade", Plugin.new(:marketplace_upgrade, "m", features)},
+      {"plugin marketplace remove", Plugin.new(:marketplace_remove, "m", features)}
     ]
+    |> Enum.map(fn {label, command} -> {label, Plugin.args(command)} end)
   end
 
   defp maximal_exec do
@@ -414,7 +465,9 @@ defmodule Mix.Tasks.Codex.Contract do
 
   defp split_emitted([arg | rest], flags, keys) do
     if String.starts_with?(arg, "-") do
-      split_emitted(rest, [arg | flags], keys)
+      # `--flag=value` names the flag before the `=`.
+      flag = arg |> String.split("=", parts: 2) |> hd()
+      split_emitted(rest, [flag | flags], keys)
     else
       split_emitted(rest, flags, keys)
     end
