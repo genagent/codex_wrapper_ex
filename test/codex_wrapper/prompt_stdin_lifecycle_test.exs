@@ -64,21 +64,8 @@ defmodule CodexWrapper.PromptStdinLifecycleTest do
 
         # The probe records INT/TERM and continues running. It never exits
         # voluntarily here, so its death establishes the final KILL stage.
-        expected =
-          if @runner == CodexWrapper.Runner.Forcola and @mode == :stream,
-            do: ["TERM"],
-            else: ["INT", "TERM"]
-
-        received = signals(dir)
-        assert Enum.map(received, &elem(&1, 0)) == expected
-
-        case received do
-          [{"INT", interrupt_at}, {"TERM", terminate_at}] ->
-            assert terminate_at - interrupt_at >= 1.5
-
-          [{"TERM", _}] ->
-            :ok
-        end
+        assert [{"INT", interrupt_at}, {"TERM", terminate_at}] = signals(dir)
+        assert terminate_at - interrupt_at >= 1.5
       end
     end
 

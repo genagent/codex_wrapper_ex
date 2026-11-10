@@ -22,7 +22,7 @@ defmodule CodexWrapper.Runner do
   runner:
 
       # mix.exs
-      {:forcola, "~> 0.7.0"}
+      {:forcola, "~> 0.12"}
 
       # config/config.exs
       config :codex_wrapper, runner: CodexWrapper.Runner.Forcola
