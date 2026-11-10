@@ -746,6 +746,35 @@ The same three are available on a `%Session{}`, using its session id:
 {:ok, _} = CodexWrapper.Session.delete(session, confirm: true)
 ```
 
+## Session history
+
+`CodexWrapper.History` reads the rollout files codex writes for each
+persisted session under `$CODEX_HOME` (default `~/.codex`):
+`sessions/YYYY/MM/DD/rollout-<timestamp>-<id>.jsonl`, the same with
+`.jsonl.zst` when codex has compressed it, and both forms under
+`archived_sessions/`. It only reads; the commands above change sessions.
+
+```elixir
+alias CodexWrapper.History
+
+{:ok, history} = History.home()
+
+# Newest first; archived: true for archived only, :all for both
+{:ok, sessions} = History.list_sessions(history, archived: :all, limit: 20)
+
+{:ok, log} = History.read_session(history, hd(sessions).id)
+log.meta["cwd"]
+Enum.take(log.entries, 5)
+# [%{timestamp: "...", type: "session_meta", payload: %{...}, ordinal: 0}, ...]
+```
+
+Listing reads file names and sizes only. `read_session/2` resolves the id
+when it is called, because codex compresses and archives rollouts, and
+returns `entries` as a lazy stream so very large rollouts are read with
+bounded memory. Compressed files need OTP 28 or later (`:zstd`); on OTP 27
+they return `{:error, {:unsupported, :zstd}}`. `session_index.jsonl`,
+`thread_history_1.sqlite` and the app-server thread view are not covered.
+
 They return `{:error, :no_session}` if no turn has run yet, since the
 session id only exists once the CLI has created it.
 
@@ -1214,6 +1243,7 @@ this table.
 | `CodexWrapper.Commands.Sandbox` | Sandboxed command execution |
 | `CodexWrapper.Commands.Apply` | Apply diffs from task IDs |
 | `CodexWrapper.Commands.Archive` | Archive, unarchive, and delete saved sessions |
+| `CodexWrapper.History` | Read session rollout files, plain and `.jsonl.zst` |
 | `CodexWrapper.Commands.Completion` | Shell completion script generation |
 | `CodexWrapper.Commands.Doctor` | Install, config, auth, and runtime diagnostics |
 | `CodexWrapper.Commands.Version` | CLI version |
