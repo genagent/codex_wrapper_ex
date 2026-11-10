@@ -60,6 +60,9 @@ defmodule CodexWrapperEx.MixProject do
         ],
         "Config, results, support": [
           CodexWrapper.Config,
+          CodexWrapper.History,
+          CodexWrapper.History.SessionSummary,
+          CodexWrapper.History.SessionLog,
           CodexWrapper.ChildEnv,
           CodexWrapper.Result,
           CodexWrapper.Turn,
