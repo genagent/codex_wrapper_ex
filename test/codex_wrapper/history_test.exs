@@ -40,9 +40,6 @@ defmodule CodexWrapper.HistoryTest do
     path
   end
 
-  defp compress(contents),
-    do: IO.iodata_to_binary(String.to_existing_atom("zstd").compress(contents))
-
   describe "home/0 and at/1" do
     test "at/1 expands the root" do
       assert History.root(History.at("relative/dir")) == Path.expand("relative/dir")
@@ -150,6 +147,10 @@ defmodule CodexWrapper.HistoryTest do
   end
 
   if Code.ensure_loaded?(:zstd) do
+    # :zstd exists on OTP 28 and later; resolved at run time for OTP 27 builds.
+    defp compress(contents),
+      do: IO.iodata_to_binary(String.to_existing_atom("zstd").compress(contents))
+
     describe "compressed rollouts" do
       setup %{tmp_dir: dir} do
         write(
