@@ -512,7 +512,7 @@ defmodule CodexWrapper.ExecTest do
       assert ["--cyber-access-program", "standard"] ==
                Enum.drop_while(args, &(&1 != "--cyber-access-program")) |> Enum.take(2)
 
-      assert Enum.take(args, -2) == ["--", "fix the failing test"]
+      assert Enum.take(args, -2) == ["--", "-"]
     end
 
     test "cyber_access_program accepts only the three programs" do
@@ -523,7 +523,12 @@ defmodule CodexWrapper.ExecTest do
                |> Enum.member?(Atom.to_string(program))
       end
 
-      assert_raise FunctionClauseError, fn -> Exec.cyber_access_program(Exec.new("x"), :other) end
+      # Read at runtime so the type checker does not flag the invalid call.
+      program = Process.get(:cyber_access_program_probe, :other)
+
+      assert_raise FunctionClauseError, fn ->
+        Exec.cyber_access_program(Exec.new("x"), program)
+      end
     end
 
     test "approve_for_me with a sandbox raises when the argv is built" do
