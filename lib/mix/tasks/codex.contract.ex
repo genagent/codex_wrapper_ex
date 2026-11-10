@@ -37,7 +37,10 @@ defmodule Mix.Tasks.Codex.Contract do
   Flag *semantics*, value sets (an accepted flag whose allowed values
   changed is invisible here), and anything requiring authentication.
   It answers one question -- does the CLI still accept the flags we
-  emit -- which is the failure mode that actually bit us.
+  emit -- which is the failure mode that actually bit us. The one
+  semantic check is that `codex exec --profile <name>` before `resume`,
+  `fork` and `review` loads the profile file, probed with an isolated
+  `CODEX_HOME`.
   """
 
   use Mix.Task
@@ -68,22 +71,16 @@ defmodule Mix.Tasks.Codex.Contract do
     "exec resume" => %{
       "--help" => "help",
       "--config" => "emitted as -c",
-      "--worktree" => "pending #143",
-      "--thread-source" => "pending #143",
-      "--cyber-access-program" => "pending #143"
+      "--worktree" => "listed, but codex rejects it: cannot resume an existing session"
     },
     "exec fork" => %{
       "--help" => "help",
-      "--config" => "emitted as -c",
-      "--worktree" => "pending #143",
-      "--thread-source" => "pending #143",
-      "--cyber-access-program" => "pending #143"
+      "--config" => "emitted as -c"
     },
     "exec review" => %{
       "--help" => "help",
       "--config" => "emitted as -c",
-      "--worktree" => "pending #143",
-      "--thread-source" => "pending #143",
+      "--worktree" => "listed, but codex rejects it: not supported for code review",
       "--cyber-access-program" => "listed, but help says it is not supported with review"
     }
   }
@@ -97,6 +94,7 @@ defmodule Mix.Tasks.Codex.Contract do
       {"exec", Exec.args(maximal_exec_exclusive())},
       {"exec resume", ExecResume.args(maximal_exec_resume())},
       {"exec fork", ExecFork.args(maximal_exec_fork())},
+      {"exec fork", ExecFork.args(maximal_exec_fork_exclusive())},
       {"exec review", Review.args(maximal_review())}
     ]
   end
@@ -160,6 +158,16 @@ defmodule Mix.Tasks.Codex.Contract do
     |> ExecResume.dangerously_bypass_hook_trust()
     |> ExecResume.ignore_user_config()
     |> ExecResume.ignore_rules()
+    |> ExecResume.profile("contract")
+    |> ExecResume.cd("/tmp")
+    |> ExecResume.add_dir("/tmp")
+    |> ExecResume.color(:never)
+    |> ExecResume.oss()
+    |> ExecResume.local_provider("ollama")
+    |> ExecResume.approve_for_me()
+    |> ExecResume.search()
+    |> ExecResume.thread_source("contract")
+    |> ExecResume.cyber_access_program(:standard)
   end
 
   defp maximal_exec_fork do
@@ -180,6 +188,24 @@ defmodule Mix.Tasks.Codex.Contract do
     |> ExecFork.output_schema("/tmp/schema.json")
     |> ExecFork.json()
     |> ExecFork.output_last_message("/tmp/last.txt")
+    |> ExecFork.profile("contract")
+    |> ExecFork.cd("/tmp")
+    |> ExecFork.add_dir("/tmp")
+    |> ExecFork.color(:never)
+    |> ExecFork.oss()
+    |> ExecFork.local_provider("ollama")
+    |> ExecFork.approve_for_me()
+    |> ExecFork.approval_policy(:never)
+    |> ExecFork.search()
+    |> ExecFork.thread_source("contract")
+    |> ExecFork.cyber_access_program(:standard)
+  end
+
+  # --worktree excludes --ephemeral.
+  defp maximal_exec_fork_exclusive do
+    ExecFork.new("abc-123")
+    |> ExecFork.prompt("branch off")
+    |> ExecFork.worktree()
   end
 
   defp maximal_review do
@@ -203,6 +229,16 @@ defmodule Mix.Tasks.Codex.Contract do
     |> Review.dangerously_bypass_hook_trust()
     |> Review.ignore_user_config()
     |> Review.ignore_rules()
+    |> Review.profile("contract")
+    |> Review.cd("/tmp")
+    |> Review.add_dir("/tmp")
+    |> Review.color(:never)
+    |> Review.oss()
+    |> Review.local_provider("ollama")
+    |> Review.approve_for_me()
+    |> Review.approval_policy(:never)
+    |> Review.search()
+    |> Review.thread_source("contract")
   end
 
   @impl Mix.Task
@@ -219,7 +255,7 @@ defmodule Mix.Tasks.Codex.Contract do
 
     findings =
       check(binary, specs(), version: parse_version(version(binary))) ++
-        unbuilt(binary, specs())
+        unbuilt(binary, specs()) ++ profile_probes(binary)
 
     if findings == [] do
       Mix.shell().info("No drift: every emitted flag is still accepted.")
@@ -256,7 +292,14 @@ defmodule Mix.Tasks.Codex.Contract do
     |> Enum.group_by(fn {label, _argv} -> label end, fn {_label, argv} -> argv end)
     |> Enum.sort()
     |> Enum.flat_map(fn {label, argvs} ->
-      emitted = argvs |> Enum.flat_map(&(&1 |> split_emitted() |> elem(0))) |> MapSet.new()
+      emitted =
+        argvs
+        |> Enum.flat_map(fn argv ->
+          {_exec_level, argv} = split_exec_level(argv, String.split(label))
+          argv |> split_emitted() |> elem(0)
+        end)
+        |> MapSet.new()
+
       allowed = Map.get(allowlist, label, %{})
 
       binary
@@ -309,6 +352,7 @@ defmodule Mix.Tasks.Codex.Contract do
 
   defp check_command(binary, {label, argv}, version) do
     subcommand = String.split(label)
+    {exec_level, argv} = split_exec_level(argv, subcommand)
     {flags, config_keys} = split_emitted(argv)
     accepted = help_flags(binary, subcommand)
 
@@ -317,6 +361,19 @@ defmodule Mix.Tasks.Codex.Contract do
       |> Enum.reject(&(MapSet.member?(accepted, &1) or introduced_after?(&1, version)))
       |> Enum.map(&"#{label}: #{&1} is not in `codex #{label} --help`")
 
+    missing_exec_level =
+      case exec_level do
+        [] ->
+          []
+
+        flags ->
+          exec_accepted = help_flags(binary, ["exec"])
+
+          flags
+          |> Enum.reject(&(MapSet.member?(exec_accepted, &1) or introduced_after?(&1, version)))
+          |> Enum.map(&"#{label}: #{&1} (before the subcommand) is not in `codex exec --help`")
+      end
+
     missing_keys =
       config_keys
       |> Enum.flat_map(&check_config_key(binary, subcommand, label, &1))
@@ -324,9 +381,24 @@ defmodule Mix.Tasks.Codex.Contract do
     if MapSet.size(accepted) == 0 do
       ["#{label}: help returned no option flags; contract check would be blind"]
     else
-      missing_flags ++ missing_keys
+      missing_flags ++ missing_exec_level ++ missing_keys
     end
   end
+
+  # `exec resume`, `exec fork` and `exec review` take `codex exec` options
+  # before the subcommand. Returns those flags and the argv from the
+  # subcommand on, so each part is checked against its own help.
+  defp split_exec_level(["exec" | rest] = argv, ["exec", subcommand]) do
+    case Enum.split_while(rest, &(&1 != subcommand)) do
+      {before, [^subcommand | _] = after_subcommand} ->
+        {before |> split_emitted() |> elem(0), ["exec" | after_subcommand]}
+
+      _ ->
+        {[], argv}
+    end
+  end
+
+  defp split_exec_level(argv, _subcommand), do: {[], argv}
 
   # Walk the argv, separating named flags from the `-c key=value` pairs.
   # A flag's *value* must not be mistaken for a flag, so `-c` and any
@@ -367,6 +439,37 @@ defmodule Mix.Tasks.Codex.Contract do
       probe_enum_key(binary, subcommand, label, key)
     else
       ["#{label}: refusing unsafe config probe for #{key}; add a bounded probe first"]
+    end
+  end
+
+  @doc false
+  # `codex exec --profile <name> <subcommand>` must read
+  # `$CODEX_HOME/<name>.config.toml`. The probe home holds only a profile
+  # file with an impossible enum value, so loading it fails before any
+  # request is made, which proves the file was read.
+  @spec profile_probes(String.t()) :: [String.t()]
+  def profile_probes(binary) do
+    home = Path.join(System.tmp_dir!(), "codex_contract_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(home)
+    File.write!(Path.join(home, "contract.config.toml"), ~s(approval_policy = "#{@sentinel}"\n))
+
+    try do
+      Enum.flat_map([["exec", "resume"], ["exec", "fork"], ["exec", "review"]], fn subcommand ->
+        ["exec" | rest] = probe_args(subcommand)
+        args = ["exec", "--profile", "contract" | rest]
+
+        {output, code} =
+          System.cmd(binary, args, env: [{"CODEX_HOME", home}], stderr_to_stdout: true)
+
+        if code != 0 and String.contains?(output, @sentinel) and
+             String.contains?(output, "unknown variant") do
+          []
+        else
+          ["#{Enum.join(subcommand, " ")}: `codex exec --profile` did not load the profile file"]
+        end
+      end)
+    after
+      File.rm_rf!(home)
     end
   end
 

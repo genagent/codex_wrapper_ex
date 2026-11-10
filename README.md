@@ -166,15 +166,14 @@ reading it takes constant time and does not parse the retained stdout again.
 
 Session options are the exec options in the table under
 [Exec options](#exec-options) and apply to every turn. Resumed turns run
-`codex exec resume`, which rejects `--profile`, `--cd`, `--add-dir`,
-`--color`, `--oss` and `--local-provider` and has no `--search`, and
-`ExecResume` has no builder for `--approve-for-me`, `--worktree`,
-`--thread-source` or `--cyber-access-program`, so `:profile`, `:cd`,
-`:add_dir`, `:color`, `:oss`, `:local_provider`, `:search`,
-`:approve_for_me`, `:worktree`, `:thread_source` and
-`:cyber_access_program` apply to the first turn only. `:sandbox` and
-`:approval_policy` are emitted on resumed turns as `-c sandbox_mode="..."` and
-`-c approval_policy="..."`.
+`codex exec resume`: `:profile`, `:cd`, `:add_dir`, `:color`, `:oss`,
+`:local_provider` and `:approve_for_me` are emitted before `resume`
+(see [Exec-level options](#exec-level-options-on-resume-fork-and-review)),
+and `:sandbox`, `:approval_policy` and `:search` as `-c sandbox_mode="..."`,
+`-c approval_policy="..."` and `-c web_search="..."`. `:worktree` and
+`:thread_source` apply to the first turn only: `codex exec resume`
+rejects `--worktree`, and `--thread-source` classifies a newly created
+thread.
 
 ## Typed turn results
 
@@ -286,11 +285,12 @@ Exec.new("Fix the tests")
 |> Exec.execute(config)
 ```
 
-It is available on `Exec` only, and as a `:profile` option on
-`CodexWrapper.exec/2` and `CodexWrapper.Session.new/2`. The Codex CLI
-accepts `--profile` on `codex exec` but rejects it on `codex exec resume`
-and `codex exec review`, so `ExecResume` and `Review` have no `profile/2`,
-and a session's `:profile` applies to its first turn only.
+`ExecResume`, `ExecFork` and `Review` have `profile/2` too, and
+`CodexWrapper.exec/2`, `CodexWrapper.review/1` and
+`CodexWrapper.Session.new/2` take a `:profile` option. On the
+subcommands it is emitted before the subcommand
+(`codex exec --profile <name> resume ...`); see
+[Exec-level options](#exec-level-options-on-resume-fork-and-review).
 
 How the CLI resolves a profile (checked on codex-cli 0.149.0, 0.164.0 and
 0.165.0):
@@ -381,9 +381,34 @@ other. Available on `Exec`, `ExecResume`, and `Review`.
 ### Color and local providers
 
 `color/2` (`:always`, `:never`, `:auto`), `oss/1`, and `local_provider/2`
-(`"lmstudio"` or `"ollama"`) are on `Exec` only. `codex exec resume` and
-`codex exec review` reject `--color`, `--oss`, and `--local-provider`,
-verified against codex-cli 0.145.0.
+(`"lmstudio"` or `"ollama"`) are on all four builders; the subcommands
+emit them before the subcommand.
+
+### Exec-level options on resume, fork and review
+
+`codex exec` reads some options before a subcommand and applies them to
+`exec resume`, `exec fork` and `exec review`, while rejecting them after
+it. `ExecResume`, `ExecFork` and `Review` emit these between `exec` and
+the subcommand: `profile/2`, `add_dir/2`, `cd/2`, `oss/1`,
+`local_provider/2`, `color/2` and `approve_for_me/1`.
+
+```elixir
+ExecResume.new()
+|> ExecResume.session_id(id)
+|> ExecResume.prompt("continue")
+|> ExecResume.profile("ci")
+|> ExecResume.add_dir("/repo/.git")
+|> ExecResume.approval_policy(:never)
+# codex exec --profile ci --add-dir /repo/.git resume -c approval_policy="never" -- <id> -
+```
+
+After the subcommand, all three take `approval_policy/2`, `search/1,2`
+(as `-c` fields) and `thread_source/2`; `ExecResume` and `ExecFork` take
+`cyber_access_program/2`, which `codex exec review` does not support.
+`worktree/1` is on `ExecFork` only: codex-cli 0.165.0 lists `--worktree`
+in the resume and review help but rejects it there ("cannot resume an
+existing session; use `codex exec fork --worktree`", "not supported for
+code review").
 
 ## Review builder
 
@@ -1192,27 +1217,23 @@ streams.
 | `:ignore_user_config` | `boolean()` | Skip `$CODEX_HOME/config.toml` |
 | `:ignore_rules` | `boolean()` | Skip execpolicy `.rules` files |
 | `:dangerously_bypass_hook_trust` | `boolean()` | Run hooks without persisted trust |
-| `:color` | atom | `:always`, `:never`, or `:auto` (Exec only) |
-| `:oss` | `boolean()` | Use an open-source provider (Exec only) |
-| `:local_provider` | `String.t()` | `"lmstudio"` or `"ollama"` (Exec only) |
-| `:add_dir` | `String.t()` or list | Make an extra directory writable (`--add-dir`; Exec only) |
+| `:color` | atom | `:always`, `:never`, or `:auto` |
+| `:oss` | `boolean()` | Use an open-source provider |
+| `:local_provider` | `String.t()` | `"lmstudio"` or `"ollama"` |
+| `:add_dir` | `String.t()` or list | Make an extra directory writable (`--add-dir`) |
 | `:image` | `String.t()` or list | Image to attach (Exec and resumed turns) |
 | `:config` | `String.t()` or list | `key=value` config override (`-c`) |
 | `:enable` / `:disable` | `String.t()` or list | Feature flag to enable or disable |
-| `:approve_for_me` | `boolean()` | Route approval requests through automatic review; not with `:sandbox`, `:full_auto` or the bypass flag (Exec only) |
-| `:worktree` | `boolean()` | Run in a new codex-managed git worktree; not with `:ephemeral`; codex-cli 0.157.1+ (Exec only) |
-| `:thread_source` | `String.t()` | Source classification for a new thread; codex-cli 0.157.1+ (Exec only) |
-| `:cyber_access_program` | atom | `:standard`, `:daybreak_blue` or `:daybreak_red`; OpenAI provider only; codex-cli 0.162.0+ (Exec only) |
+| `:approve_for_me` | `boolean()` | Route approval requests through automatic review; on Exec not with `:sandbox`, `:full_auto` or the bypass flag |
+| `:worktree` | `boolean()` | Run in a new codex-managed git worktree; not with `:ephemeral`; codex-cli 0.157.1+ (first session turn only) |
+| `:thread_source` | `String.t()` | Source classification for a new thread; codex-cli 0.157.1+ (first session turn only) |
+| `:cyber_access_program` | atom | `:standard`, `:daybreak_blue` or `:daybreak_red`; OpenAI provider only; codex-cli 0.162.0+ |
 
 `CodexWrapper.exec/2`, `exec_json/2`, `stream/2`, `review/1` and
 `CodexWrapper.Session` raise `ArgumentError` on an option not listed for
 them, and on a value of the wrong type. `review/1` takes the review target
-options listed in its docs plus `:model`, `:sandbox`, `:full_auto`,
-`:dangerously_bypass_approvals_and_sandbox`, `:skip_git_repo_check`,
-`:ephemeral`, `:json`, `:output_schema`, `:output_last_message`,
-`:strict_config`, `:ignore_user_config`, `:ignore_rules`,
-`:dangerously_bypass_hook_trust`, `:config`, `:enable` and `:disable` from
-this table.
+options listed in its docs plus every option in this table except
+`:image`, `:worktree` and `:cyber_access_program`.
 
 ## Modules
 

@@ -247,6 +247,13 @@ defmodule CodexWrapper do
     * `:model` - Model name
     * `:sandbox` - `:read_only`, `:workspace_write`, or `:danger_full_access`;
       emits `-c sandbox_mode="..."`
+    * `:approval_policy` - `:untrusted`, `:on_request`, or `:never`;
+      emits `-c approval_policy="..."`
+    * `:search` - Web search: `true` (live), `false`, or a mode atom; emits
+      `-c web_search="..."`
+    * `:profile`, `:cd`, `:add_dir`, `:color`, `:oss`, `:local_provider`,
+      `:approve_for_me` - as for `exec/2`, emitted before `review`
+    * `:thread_source` - Thread source classification
     * `:full_auto` - Deprecated; emits `-c sandbox_mode="workspace-write"` (boolean)
     * `:dangerously_bypass_approvals_and_sandbox` - Bypass all (boolean)
     * `:dangerously_bypass_hook_trust` - Run hooks without persisted trust (boolean)

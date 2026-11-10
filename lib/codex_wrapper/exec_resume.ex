@@ -25,9 +25,12 @@ defmodule CodexWrapper.ExecResume do
 
   @behaviour CodexWrapper.Command
 
-  alias CodexWrapper.{Command, Config, JsonLineEvent, Result, Runner, Telemetry}
+  alias CodexWrapper.{Command, Config, ExecLevel, JsonLineEvent, Result, Runner, Telemetry}
 
   @type sandbox_mode :: :read_only | :workspace_write | :danger_full_access
+  @type color_mode :: :always | :never | :auto
+  @type web_search_mode :: :cached | :indexed | :live | :disabled
+  @type cyber_access_program :: :standard | :daybreak_blue | :daybreak_red
   @type approval_policy :: :untrusted | :on_request | :never
 
   @type t :: %__MODULE__{
@@ -51,6 +54,10 @@ defmodule CodexWrapper.ExecResume do
           config_overrides: [String.t()],
           enabled_features: [String.t()],
           disabled_features: [String.t()],
+          exec_level: struct(),
+          search: web_search_mode() | nil,
+          thread_source: String.t() | nil,
+          cyber_access_program: cyber_access_program() | nil,
           strict_config: boolean(),
           ignore_user_config: boolean(),
           ignore_rules: boolean()
@@ -64,6 +71,9 @@ defmodule CodexWrapper.ExecResume do
     :output_last_message,
     :sandbox,
     :approval_policy,
+    :search,
+    :thread_source,
+    :cyber_access_program,
     last: false,
     all: false,
     prompt_input: :stdin,
@@ -77,6 +87,7 @@ defmodule CodexWrapper.ExecResume do
     config_overrides: [],
     enabled_features: [],
     disabled_features: [],
+    exec_level: %ExecLevel{},
     strict_config: false,
     ignore_user_config: false,
     ignore_rules: false
@@ -245,6 +256,98 @@ defmodule CodexWrapper.ExecResume do
   def disable(%__MODULE__{} = e, feature),
     do: %{e | disabled_features: e.disabled_features ++ [feature]}
 
+  # --- Exec-level options (emitted before `resume`) ---
+
+  @doc """
+  Select a config profile (`--profile`).
+
+  Emitted before the subcommand, as `codex exec --profile <name> resume`:
+  `codex exec` reads it there and applies it to the subcommand, while
+  `codex exec resume` rejects it after the subcommand. The CLI layers
+  `$CODEX_HOME/<name>.config.toml` on top of the base `config.toml`; a
+  missing profile file is not an error.
+  """
+  @spec profile(t(), String.t()) :: t()
+  def profile(%__MODULE__{} = e, name) when is_binary(name),
+    do: %{e | exec_level: %{e.exec_level | profile: name}}
+
+  @doc """
+  Make an additional directory writable (`--add-dir`, before the subcommand).
+
+  This widens the sandbox: codex may write to `dir` as well as the
+  workspace. See the README section on git commits.
+  """
+  @spec add_dir(t(), String.t()) :: t()
+  def add_dir(%__MODULE__{} = e, dir) when is_binary(dir),
+    do: %{e | exec_level: %{e.exec_level | add_dirs: e.exec_level.add_dirs ++ [dir]}}
+
+  @doc "Set the agent's working root (`--cd`, before the subcommand)."
+  @spec cd(t(), String.t()) :: t()
+  def cd(%__MODULE__{} = e, dir) when is_binary(dir),
+    do: %{e | exec_level: %{e.exec_level | cd: dir}}
+
+  @doc "Use an open-source provider (`--oss`, before the subcommand)."
+  @spec oss(t()) :: t()
+  def oss(%__MODULE__{} = e), do: %{e | exec_level: %{e.exec_level | oss: true}}
+
+  @doc """
+  Select which local provider to use, `"lmstudio"` or `"ollama"`
+  (`--local-provider`, before the subcommand).
+  """
+  @spec local_provider(t(), String.t()) :: t()
+  def local_provider(%__MODULE__{} = e, provider) when is_binary(provider),
+    do: %{e | exec_level: %{e.exec_level | local_provider: provider}}
+
+  @doc "Set the color mode: `:always`, `:never`, or `:auto` (`--color`, before the subcommand)."
+  @spec color(t(), color_mode()) :: t()
+  def color(%__MODULE__{} = e, mode) when mode in [:always, :never, :auto],
+    do: %{e | exec_level: %{e.exec_level | color: mode}}
+
+  @doc """
+  Route approval requests through automatic review (`--approve-for-me`,
+  before the subcommand).
+
+  Codex reviews each approval request itself, using the workspace-write
+  sandbox.
+  """
+  @spec approve_for_me(t()) :: t()
+  def approve_for_me(%__MODULE__{} = e),
+    do: %{e | exec_level: %{e.exec_level | approve_for_me: true}}
+
+  @doc "Enable live web search. Shorthand for `search(e, :live)`."
+  @spec search(t()) :: t()
+  def search(%__MODULE__{} = e), do: search(e, :live)
+
+  @doc """
+  Set the web search mode: `:cached`, `:indexed`, `:live`, or `:disabled`.
+
+  Emitted as the `-c web_search="<mode>"` config override, as
+  `CodexWrapper.Exec` does.
+  """
+  @spec search(t(), web_search_mode()) :: t()
+  def search(%__MODULE__{} = e, mode) when mode in [:cached, :indexed, :live, :disabled],
+    do: %{e | search: mode}
+
+  @doc """
+  Set the source classification for a newly created or forked thread
+  (`--thread-source`). Requires codex-cli 0.157.1 or later.
+  """
+  @spec thread_source(t(), String.t()) :: t()
+  def thread_source(%__MODULE__{} = e, source) when is_binary(source),
+    do: %{e | thread_source: source}
+
+  @doc """
+  Request an experimental cyber access program for this turn
+  (`--cyber-access-program`): `:standard`, `:daybreak_blue` or
+  `:daybreak_red`.
+
+  OpenAI provider only. Requires codex-cli 0.162.0 or later.
+  """
+  @spec cyber_access_program(t(), cyber_access_program()) :: t()
+  def cyber_access_program(%__MODULE__{} = e, program)
+      when program in [:standard, :daybreak_blue, :daybreak_red],
+      do: %{e | cyber_access_program: program}
+
   # --- Execution ---
 
   @doc """
@@ -335,7 +438,7 @@ defmodule CodexWrapper.ExecResume do
 
   @impl Command
   def args(%__MODULE__{} = e) do
-    ["exec", "resume"]
+    ExecLevel.args("resume", e.exec_level)
     |> add_list("-c", config_overrides(e))
     |> add_list("--enable", e.enabled_features)
     |> add_list("--disable", e.disabled_features)
@@ -351,6 +454,7 @@ defmodule CodexWrapper.ExecResume do
     |> add_bool("--dangerously-bypass-hook-trust", e.dangerously_bypass_hook_trust)
     |> add_bool("--skip-git-repo-check", e.skip_git_repo_check)
     |> add_bool("--ephemeral", e.ephemeral)
+    |> ExecLevel.subcommand_args(e)
     |> add_bool("--ignore-user-config", e.ignore_user_config)
     |> add_bool("--ignore-rules", e.ignore_rules)
     |> add_bool("--json", e.json)
@@ -394,17 +498,8 @@ defmodule CodexWrapper.ExecResume do
   # User-supplied overrides come first, so an explicit `sandbox/2` call
   # wins on a last-wins CLI.
   defp config_overrides(%__MODULE__{} = e) do
-    e.config_overrides ++ approval_override(e) ++ sandbox_override(e)
+    e.config_overrides ++ ExecLevel.config_overrides(e) ++ sandbox_override(e)
   end
-
-  defp approval_override(%__MODULE__{approval_policy: nil}), do: []
-
-  defp approval_override(%__MODULE__{approval_policy: policy}),
-    do: [~s(approval_policy="#{format_approval_policy(policy)}")]
-
-  defp format_approval_policy(:untrusted), do: "untrusted"
-  defp format_approval_policy(:on_request), do: "on-request"
-  defp format_approval_policy(:never), do: "never"
 
   defp sandbox_override(%__MODULE__{} = e) do
     case format_sandbox(effective_sandbox(e)) do
