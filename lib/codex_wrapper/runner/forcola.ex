@@ -3,33 +3,29 @@ if Code.ensure_loaded?(Forcola) do
     @moduledoc """
     Process-group runner backed by [forcola](https://hex.pm/packages/forcola).
 
-    Evidenced one-shot execution requires Forcola 0.7's reviewed PR #97 run/2
-    contract and matching shim. Forcola 0.6 cannot establish these facts and is
-    rejected before invoking `run_evidenced/5`. Legacy run/stream callbacks
-    remain available.
+    Requires Forcola `~> 0.12` and its matching shim. Evidenced one-shot
+    execution needs the `run/2` evidence contract; a Forcola without it is
+    rejected before invoking `run_evidenced/5`.
     New options pass through without global environment or application changes.
     Native exit, cancellation reason, transport, cleanup confirmation/scope and
     guard close are retained independently. Missing evidence remains unknown.
     A confirmed process group never proves containment of escaped descendants.
 
     Every `codex` invocation runs under forcola's Rust shim, which places
-    the CLI in its own process group and signals the whole group on timeout
-    or when the BEAM dies. One-shot runs send SIGINT first, then SIGTERM
-    after `interrupt_grace_ms` (default 2,000), then SIGKILL after
-    `kill_grace_ms`. Codex handles SIGINT by stopping the tool command it is
-    running; on SIGTERM alone it exits and leaves that command behind,
-    because codex puts each tool command and stdio MCP server in its own
-    process group (#119). Pass `interrupt_signal: :int` and
-    `interrupt_grace_ms` in `runner_options` to change the grace.
+    the CLI in its own process group and signals the whole group on timeout,
+    stream halt, or when the BEAM dies. Both one-shot runs and streams send
+    SIGINT first, then SIGTERM after `interrupt_grace_ms` (default 2,000),
+    then SIGKILL after `kill_grace_ms`. Codex handles SIGINT by stopping the
+    tool command it is running; on SIGTERM alone it exits and leaves that
+    command behind, because codex puts each tool command and stdio MCP
+    server in its own process group (#119). Pass `interrupt_signal: :int`
+    and `interrupt_grace_ms` in `runner_options` to change the one-shot
+    grace; streams always use the default.
 
-    Streaming (`stream_lines/4`) still sends SIGTERM, then SIGKILL, with no
-    SIGINT step: `Forcola.Stream` does not accept interrupt options yet
-    (joshrotenberg/forcola#93). A codex tool command running when a stream
-    is halted or times out can outlive codex. The default
-    `CodexWrapper.Runner.Port` sends SIGINT first on both paths, but signals
-    only the `codex` process. Neither runner stops descendants that leave
-    codex's process group or ignore these signals; on Linux, forcola's
-    cgroup option is the backstop.
+    The default `CodexWrapper.Runner.Port` also sends SIGINT first on both
+    paths, but signals only the `codex` process. Neither runner stops
+    descendants that leave codex's process group or ignore these signals;
+    on Linux, forcola's cgroup option is the backstop.
 
     Prompts use a private file opened and unlinked by a short shell launcher
     before it execs codex. The launcher retains the target's process group and
@@ -412,7 +408,9 @@ if Code.ensure_loaded?(Forcola) do
 
       stream_opts =
         [timeout_ms: timeout, merge_stderr: merge_stderr?(opts)] ++
-          Keyword.take(opts, [:cd]) ++ if(sets == [], do: [], else: [env: sets])
+          Keyword.take(opts, [:cd]) ++
+          if(sets == [], do: [], else: [env: sets]) ++
+          [interrupt_signal: :int, interrupt_grace_ms: @default_interrupt_grace_ms]
 
       stream_opts =
         if idle_timeout_ms,
@@ -447,8 +445,8 @@ if Code.ensure_loaded?(Forcola) do
       end
     end
 
-    # `Forcola.Stream` rejects `:env_mode`, so a stream removes variables
-    # with `env -u`, which then execs the target in the same process group.
+    # A stream removes variables with `env -u`, which then execs the target
+    # in the same process group.
     defp env_unset_prefix([]), do: []
 
     defp env_unset_prefix(names),

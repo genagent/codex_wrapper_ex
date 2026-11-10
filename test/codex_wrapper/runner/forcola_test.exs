@@ -151,6 +151,41 @@ defmodule CodexWrapper.Runner.ForcolaTest do
                |> Enum.to_list()
     end
 
+    test "an early halt sends SIGINT before SIGTERM (closes #119)" do
+      marker =
+        Path.join(System.tmp_dir!(), "cxw_forcola_sint_#{System.unique_integer([:positive])}")
+
+      on_exit(fn -> File.rm(marker) end)
+
+      script = """
+      trap 'exit 42' TERM
+      trap '/bin/sleep 0.1; printf interrupted > #{marker}; exit 0' INT
+      echo line
+      while :; do /bin/sleep 0.01; done
+      """
+
+      assert ["line"] = Forcola.stream_lines("sh", ["-c", script], [], 30_000) |> Enum.take(1)
+      assert File.read!(marker) == "interrupted"
+    end
+
+    test "a whole-run timeout sends SIGINT before SIGTERM" do
+      marker =
+        Path.join(System.tmp_dir!(), "cxw_forcola_tint_#{System.unique_integer([:positive])}")
+
+      on_exit(fn -> File.rm(marker) end)
+
+      script = """
+      trap 'exit 42' TERM
+      trap '/bin/sleep 0.1; printf interrupted > #{marker}; exit 0' INT
+      while :; do /bin/sleep 0.01; done
+      """
+
+      assert [{:error, {:timeout, 300}}] =
+               Forcola.stream_lines("sh", ["-c", script], [], 300) |> Enum.to_list()
+
+      assert File.read!(marker) == "interrupted"
+    end
+
     test "an early halt does not raise" do
       assert ["y", "y"] = Forcola.stream_lines("yes", [], [], 5_000) |> Enum.take(2)
     end

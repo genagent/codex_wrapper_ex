@@ -114,9 +114,8 @@ prompt text in the process table and is subject to these limits.
 
 Custom runners receive prompt bytes as `opts[:stdin]`; they must deliver all
 bytes and then EOF, or callers must select `prompt_input: :argv`. The built-in
-runners preserve their termination behavior: Port sends INT, TERM and KILL;
-Forcola one-shot execution does too, while Forcola 0.7 streaming retains its
-TERM/KILL-only schedule.
+runners preserve their termination behavior: Port and Forcola both send INT,
+TERM and KILL, on one-shot runs and streams.
 
 ## Code review
 
@@ -917,8 +916,8 @@ observed identity is not proof of completion; the call can still fail or time ou
 
 The same option works with `Exec.execute/3`, `ExecResume.execute/3`,
 `ExecFork.execute/3`, `ExecFork.fork/3`, their `execute_json/3` variants and
-`CodexWrapper.exec_json/2`. It requires `Runner.Forcola` and Forcola 0.7 or
-later in the supported dependency range. Invalid observer options and runners
+`CodexWrapper.exec_json/2`. It requires `Runner.Forcola` and Forcola in the
+supported dependency range (`~> 0.12`). Invalid observer options and runners
 without observed execution fail before spawning. A dead observer is harmless;
 no caller callback runs and no silent Port fallback occurs.
 
@@ -982,12 +981,10 @@ CodexWrapper.Exec.execute(CodexWrapper.Exec.new("inspect the project"), config,
 # {ref, %CodexWrapper.ExecutionObservation{...}}     (exactly once before return)
 ```
 
-The evidenced adapter requires Forcola `~> 0.7.0`, whose reviewed PR #97
-supplies the `run/2` contract and matching shim. The dependency floor has been
-updated and the lockfile resolves the published 0.7.0 release.
-Forcola 0.6 cannot satisfy this contract and is rejected before evidenced
-execution. The example requires the matching trusted shim; fake tests do not
-establish native behavior.
+The evidenced adapter requires Forcola `~> 0.12`, which supplies the `run/2`
+evidence contract and matching shim. A Forcola without that contract is
+rejected before evidenced execution. The example requires the matching trusted
+shim; fake tests do not establish native behavior.
 
 A terminal observation preserves bounded stdout/stderr prefixes (including on
 failure), the last parsed `turn.completed` / `turn.failed` object, the legacy
@@ -1078,17 +1075,16 @@ puts each tool command and stdio MCP server in its own process group: on
 SIGINT codex stops the command it is running, while on SIGTERM alone it
 exits and leaves that command behind.
 
-Streaming runs through forcola still send SIGTERM then SIGKILL with no SIGINT
-step, because `Forcola.Stream` does not accept interrupt options yet
-(joshrotenberg/forcola#93); a tool command running when the stream ends can
-outlive codex. Neither runner stops descendants that leave codex's process
+Streaming runs through forcola follow the same schedule with the default
+2,000 ms grace when a stream is halted, times out, or its owner or the BEAM
+dies. Neither runner stops descendants that leave codex's process
 group or ignore these signals. On Linux, forcola's cgroup option is the
 backstop; on macOS there is none. `forcola` is POSIX-only (macOS and Linux)
 and ships precompiled shim binaries, so no Rust toolchain is required.
 
 ```elixir
 # mix.exs
-{:forcola, "~> 0.7.0"}
+{:forcola, "~> 0.12"}
 ```
 
 ```elixir
